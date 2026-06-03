@@ -1,0 +1,13 @@
+employee_code,first_name,last_name,username,gender,dob,email,designation,department,location,employment_type,joining_date,shift_applicable,shift_category,manager_username,is_staff,is_superuser,is_pmo,is_manager,keycloak_group
+HIT-001,Chandraprakash,Sankar,HIT-001,male,8/13/1998,chandraprakash@hackersinfotech.com,CEO,Management,Hackers InfoTech - CBE,Permanent,8/17/2018,FALSE,,,,TRUE,TRUE,TRUE,Admin
+HIT-004,Shruthi,Nadhitha,HIT-004,female,5/26/1999,shruthi@hackersinfotech.com,Human Resource,Management,Hackers InfoTech - CBE,Hybrid,6/21/2024,FALSE,,HIT-001,FALSE,FALSE,FALSE,FALSE,HR & Admin
+HIT-002,Karthicksankar,Kathirvel,HIT-002,male,7/11/1999,karthicksankar@hackersinfotech.com,Project Manager & Architect,Management,Hackers InfoTech - CBE,Permanent,8/17/2018,FALSE,,HIT-001,FALSE,FALSE,FALSE,TRUE,Project Manager
+HIT-003,Gowrisankar,K,HIT-003,male,1/3/1999,gowrisankar@hackersinfotech.com,Team Lead,Cyber Analyst,Hackers InfoTech - CBE,Consultant,1/7/2020,FALSE,,HIT-002,FALSE,FALSE,FALSE,TRUE,Employee
+HIT-005,Gowri,Ganesh,HIT-005,female,10/9/1999,gowri@hackersinfotech.com,Senior Engineer,Full Stack,Hackers InfoTech - CBE,Hybrid,6/21/2024,FALSE,,HIT-002,FALSE,FALSE,FALSE,TRUE,Employee
+HIT-006,Kiruba,Kuttyappan,HIT-006,male,1/9/1999,kiruba@hackersinfotech.com,Senior Engineer,QA & Tester,Hackers InfoTech - CBE,Consultant,1/7/2019,FALSE,,HIT-002,FALSE,FALSE,FALSE,TRUE,Employee
+HIT-007,Dharshini,SK,HIT-007,female,1/9/2003,dharshini@hackersinfotech.com,Intern,Cyber Analyst,Hackers InfoTech - CBE,Internship,5/1/2026,TRUE,Morning Shift (9AM-6PM),HIT-003,FALSE,FALSE,FALSE,FALSE,Employee
+HIT-008,Madhan,Ganesh,HIT-008,male,11/1/2003,madhan@hackersinfotech.com,Intern,Cyber Analyst,Hackers InfoTech - CBE,Internship,5/1/2026,TRUE,Morning Shift (9AM-6PM),HIT-003,FALSE,FALSE,FALSE,FALSE,Employee
+HIT-009,Dharshika,K,HIT-009,female,11/12/2002,dharshika@hackersinfotech.com,Intern,Full Stack,Hackers InfoTech - CBE,Internship,5/1/2026,TRUE,General Shift (10AM-7PM),HIT-005,FALSE,FALSE,FALSE,FALSE,Employee
+HIT-010,Kavya,M,HIT-010,female,14/8/2002,kavya@hackersinfotech.com,Intern,Full Stack,Hackers InfoTech - CBE,Internship,5/1/2026,TRUE,General Shift (10AM-7PM),HIT-005,FALSE,FALSE,FALSE,FALSE,Employee
+HIT-011,Samyuktha,N,HIT-011,female,,samyuktha@hackersinfotech.com,Intern,Full Stack,Hackers InfoTech - CBE,Internship,5/1/2026,TRUE,Morning Shift (9AM-6PM),HIT-005,FALSE,FALSE,FALSE,FALSE,Employee
+HIT-012,Venkatraman,SP,HIT-012,male,11/3/2002,venkat@hackersinfotech.com,Intern,Full Stack,Hackers InfoTech - CBE,Internship,5/5/2026,TRUE,Morning Shift (9AM-6PM),HIT-006,FALSE,FALSE,FALSE,FALSE,Employee
