@@ -98,6 +98,7 @@ class Employee(AbstractBaseUser, PermissionsMixin):
         related_name="direct_reports",
     )
     shift_applicable   = models.BooleanField(default=False)
+    wfh_allowed = models.BooleanField(default=False)
     shift_category     = models.ForeignKey(
         "master.ShiftCategory", on_delete=models.SET_NULL, null=True, blank=True,
         related_name="employees",
@@ -173,3 +174,6 @@ class EmployeeCertificate(models.Model):
 
     def __str__(self):
         return f"{self.employee} – {self.title}"
+
+
+
