@@ -1,7 +1,8 @@
 """
 Data migration command: loads master tables and employees from CSV files
-located in backend/data/, provisions them in Keycloak, and seeds May-2026
-attendance for shift-applicable staff.
+located in backend/data/, provisions them in Keycloak, and seeds weekday
+attendance from March 2026 through July 2026 (or today if earlier) with
+per-employee check-in/out variance and break records for shift staff.
 
 Usage:
     python manage.py migrate_seed_data                    # full run (Django + Keycloak)
@@ -11,9 +12,10 @@ Usage:
 """
 
 import csv
+import hashlib
 import logging
 import os
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -23,16 +25,26 @@ logger = logging.getLogger(__name__)
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "data")
 
 
-def _may_2026_weekdays():
-    days, d = [], date(2026, 5, 1)
-    while d.month == 5:
+def _attendance_weekdays(start=None, end=None):
+    """Weekdays (Mon–Fri) from start through end (defaults: 2026-03-01 → min(today, Jul 31))."""
+    start = start or date(2026, 3, 1)
+    end = end or min(date.today(), date(2026, 7, 31))
+    days, d = [], start
+    while d <= end:
         if d.weekday() < 5:
             days.append(d)
         d += timedelta(days=1)
     return days
 
 
-MAY_2026_WEEKDAYS = _may_2026_weekdays()
+def _emp_offset(username: str, salt: str, span: int) -> int:
+    digest = hashlib.md5(f"{username}:{salt}".encode()).hexdigest()
+    return int(digest, 16) % span
+
+
+def _add_minutes(t: time, minutes: int) -> time:
+    base = datetime.combine(date.today(), t) + timedelta(minutes=minutes)
+    return base.time()
 
 
 def _csv_path(filename):
@@ -354,11 +366,33 @@ class Command(BaseCommand):
     # Employees — pass 1: create without manager FK
     # ──────────────────────────────────────────────────────────────────────────
 
+    def _purge_hit_employee_blockers(self):
+        """Remove records that block deleting HIT-* employees (e.g. expense paid_by PROTECT)."""
+        from django.db.models import Q
+
+        from apps.accounts.models import Employee
+        from apps.expenses.models import CompanyExpense
+
+        hit_ids = list(
+            Employee.objects.filter(employee_code__startswith="HIT-").values_list("pk", flat=True)
+        )
+        if not hit_ids:
+            return
+
+        exp_qs = CompanyExpense.objects.filter(
+            Q(paid_by_id__in=hit_ids) | Q(reference_number__startswith="BILL-DEMO-")
+        )
+        exp_count = exp_qs.count()
+        if exp_count:
+            exp_qs.delete()
+            self._log(f"  Reset prep:   removed {exp_count} expense(s) blocking employee delete")
+
     def _load_employees(self, dry, reset, provisioner):
         from apps.master.models import Designation, Department, Location, EmploymentType, ShiftCategory
         from apps.accounts.models import Employee
 
-        if reset:
+        if reset and not dry:
+            self._purge_hit_employee_blockers()
             Employee.objects.filter(employee_code__startswith="HIT-").delete()
 
         emp_map = {}
@@ -486,11 +520,13 @@ class Command(BaseCommand):
         self._log(f"  Manager FKs:  {updated} wired")
 
     # ──────────────────────────────────────────────────────────────────────────
-    # Attendance — May 2026 weekdays, shift-applicable only
+    # Attendance — Mar–Jul 2026, weekdays, varied breaks for shift staff
     # ──────────────────────────────────────────────────────────────────────────
 
     def _seed_attendance(self, dry, emp_map):
-        from apps.attendance.models import AttendanceRecord, AttendanceStatus
+        from apps.attendance.models import (
+            AttendanceBreak, AttendanceRecord, AttendanceStatus, BreakType,
+        )
 
         SHIFT_TIMES = {
             "Morning Shift (9AM-6PM)":  (time(9,  0), time(18, 0)),
@@ -498,45 +534,109 @@ class Command(BaseCommand):
         }
         DEFAULT_TIMES = (time(9, 0), time(18, 0))
 
-        shift_applicable = [
-            emp for emp in emp_map.values()
-            if getattr(emp, "shift_applicable", False)
-        ]
+        # Approved leave days seeded later in seed_pmo_demo — pre-mark common ones here
+        ON_LEAVE = {
+            ("HIT-009", date(2026, 5, 12)),
+            ("HIT-010", date(2026, 6, 16)),
+            ("HIT-010", date(2026, 6, 17)),
+            ("HIT-007", date(2026, 6, 23)),
+            ("HIT-005", date(2026, 4, 4)),
+        }
 
-        created = skipped = 0
-        for emp in shift_applicable:
-            sc      = getattr(emp, "shift_category", None)
-            sc_name = sc.name if sc and hasattr(sc, "name") else ""
-            cin, cout = SHIFT_TIMES.get(sc_name, DEFAULT_TIMES)
+        created = skipped = breaks_created = 0
+        work_days = _attendance_weekdays()
+
+        for emp in emp_map.values():
             jd = emp.joining_date
             if isinstance(jd, str) and jd:
                 jd = _parse_date(jd)
 
-            for work_day in MAY_2026_WEEKDAYS:
+            sc      = getattr(emp, "shift_category", None)
+            sc_name = sc.name if sc and hasattr(sc, "name") else ""
+            base_cin, base_cout = SHIFT_TIMES.get(sc_name, DEFAULT_TIMES)
+            shift_on = getattr(emp, "shift_applicable", False)
+
+            # Per-employee clock variance (not identical across team)
+            cin  = _add_minutes(base_cin,  _emp_offset(emp.username, "in",  25) - 8)
+            cout = _add_minutes(base_cout, _emp_offset(emp.username, "out", 35) - 5)
+
+            tea_start = _add_minutes(time(10, 30), _emp_offset(emp.username, "tea", 20))
+            tea_mins  = 8 + _emp_offset(emp.username, "tea-len", 8)
+            lunch_start = _add_minutes(time(12, 30), _emp_offset(emp.username, "lunch", 25))
+            lunch_mins  = 42 + _emp_offset(emp.username, "lunch-len", 20)
+
+            for work_day in work_days:
                 if jd and work_day < jd:
                     skipped += 1
                     continue
+
+                if (emp.username, work_day) in ON_LEAVE:
+                    if dry:
+                        created += 1
+                        continue
+                    AttendanceRecord.objects.update_or_create(
+                        employee=emp,
+                        date=work_day,
+                        defaults={
+                            "status": AttendanceStatus.ON_LEAVE,
+                            "notes":  "Seeded approved leave",
+                        },
+                    )
+                    created += 1
+                    continue
+
                 if dry:
                     created += 1
                     continue
-                _, c = AttendanceRecord.objects.get_or_create(
-                    employee=emp,
-                    date=work_day,
-                    defaults={
+
+                if shift_on:
+                    status = AttendanceStatus.PRESENT
+                    defaults = {
                         "check_in":  cin,
                         "check_out": cout,
-                        "status":    AttendanceStatus.PRESENT,
+                        "status":    status,
                         "notes":     "Seeded by migrate_seed_data",
-                    },
-                )
-                if c:
-                    created += 1
+                    }
                 else:
+                    # Senior staff — WFH / office presence without punch detail
+                    status = AttendanceStatus.WFH if work_day.weekday() == 4 else AttendanceStatus.PRESENT
+                    defaults = {
+                        "check_in":  None,
+                        "check_out": None,
+                        "status":    status,
+                        "notes":     "Seeded — management / non-shift",
+                    }
+
+                record, c = AttendanceRecord.objects.get_or_create(
+                    employee=emp,
+                    date=work_day,
+                    defaults=defaults,
+                )
+                if not c:
                     skipped += 1
+                    continue
+                created += 1
+
+                if shift_on and not record.breaks.filter(is_deleted=False).exists():
+                    tea_end = _add_minutes(tea_start, tea_mins)
+                    lunch_end = _add_minutes(lunch_start, lunch_mins)
+                    AttendanceBreak.objects.create(
+                        attendance=record,
+                        break_type=BreakType.TEA,
+                        start_time=tea_start,
+                        end_time=tea_end,
+                    )
+                    AttendanceBreak.objects.create(
+                        attendance=record,
+                        break_type=BreakType.LUNCH,
+                        start_time=lunch_start,
+                        end_time=lunch_end,
+                    )
+                    breaks_created += 2
 
         self._log(
-            f"  Attendance:   {created} records created, "
-            f"{skipped} skipped (pre-joining date or already exists)"
+            f"  Attendance:   {created} records, {breaks_created} breaks, "
+            f"{skipped} skipped (pre-joining or exists)"
         )
 
     def _log(self, msg):

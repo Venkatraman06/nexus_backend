@@ -35,6 +35,28 @@ class AllocationViewSet(BaseModelViewSet):
             return AllocationCreateSerializer
         return AllocationSerializer
 
+    def perform_create(self, serializer):
+        allocation = serializer.save(
+            created_by=self.request.user,
+            updated_by=self.request.user,
+        )
+        from apps.notifications.constants import EventType, ReferenceType
+        from apps.notifications.publisher import publish_event
+        publish_event(
+            EventType.PROJECT_ALLOCATION,
+            ReferenceType.ALLOCATION,
+            str(allocation.id),
+            payload={
+                "employee_id": str(allocation.employee_id),
+                "project_id": str(allocation.project_id),
+                "project_name": allocation.project.name,
+                "allocation_pct": str(allocation.allocation_percentage),
+                "start_date": allocation.start_date.isoformat(),
+            },
+            actor_id=str(self.request.user.id),
+            async_delivery=True,
+        )
+
     @action(detail=False, methods=["get"], url_path="employee-capacity")
     def employee_capacity(self, request):
         year = int(request.query_params.get("year", date.today().year))

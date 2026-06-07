@@ -30,6 +30,21 @@ class EmployeeStatus(models.TextChoices):
     RESIGNED = "RESIGNED", "Resigned"
 
 
+class WorkLogCategory(models.TextChoices):
+    BILLABLE     = "BILLABLE",     "Billable"
+    NON_BILLABLE = "NON_BILLABLE", "Non-Billable"
+    INTERNAL     = "INTERNAL",     "Internal"
+    TRAINING     = "TRAINING",     "Training"
+    SUPPORT      = "SUPPORT",      "Support"
+
+
+class TimesheetStatus(models.TextChoices):
+    DRAFT     = "DRAFT",     "Draft"
+    SUBMITTED = "SUBMITTED", "Submitted"
+    APPROVED  = "APPROVED",  "Approved"
+    REJECTED  = "REJECTED",  "Rejected"
+
+
 DAILY_HOURS = 8
 MONTHLY_WORKING_DAYS = 22
 MONTHLY_CAPACITY_HOURS = DAILY_HOURS * MONTHLY_WORKING_DAYS

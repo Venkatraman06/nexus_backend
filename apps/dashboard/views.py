@@ -2,6 +2,7 @@
 from datetime import date, timedelta
 
 from django.db.models import Sum, Count, Q, Avg
+from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -15,6 +16,88 @@ from apps.projects.models import Project
 from apps.tickets.models import Ticket
 from apps.workitems.models import WorkLog
 from apps.payroll.models import Payroll
+from apps.timesheets.models import WeeklyTimesheet
+from apps.common.constants import TimesheetStatus
+from apps.timesheets.services import missing_timesheets, week_bounds
+
+
+def _project_health_status(project, today):
+    """Return ON_TRACK | AT_RISK | DELAYED for a project."""
+    if project.end_date and project.end_date < today:
+        return "DELAYED"
+    if not project.end_date:
+        return "ON_TRACK"
+
+    days_left = (project.end_date - today).days
+    total_days = (project.end_date - project.start_date).days if project.start_date else None
+    open_tickets = Ticket.objects.filter(
+        project=project, is_deleted=False, workflow_state__is_final=False,
+    ).count()
+    total_tickets = Ticket.objects.filter(project=project, is_deleted=False).count()
+    open_ratio = (open_tickets / total_tickets) if total_tickets else 0
+
+    if total_days and days_left / total_days < 0.2 and open_ratio > 0.4:
+        return "DELAYED"
+    if (total_days and days_left / total_days < 0.35) or open_ratio > 0.6:
+        return "AT_RISK"
+    return "ON_TRACK"
+
+
+def _portfolio_projects(projects_qs, today, year=None, month=None):
+    """Build enriched project list + health summary."""
+    on_track = at_risk = delayed = 0
+    project_list = []
+
+    for p in projects_qs.select_related("client", "manager"):
+        health = _project_health_status(p, today)
+        if health == "ON_TRACK":
+            on_track += 1
+        elif health == "AT_RISK":
+            at_risk += 1
+        else:
+            delayed += 1
+
+        total_tickets = Ticket.objects.filter(project=p, is_deleted=False).count()
+        done_tickets = Ticket.objects.filter(
+            project=p, is_deleted=False, workflow_state__is_final=True,
+        ).count()
+        completion_pct = round((done_tickets / total_tickets * 100), 1) if total_tickets else 0
+
+        logged_hours = 0.0
+        if year and month:
+            logged_hours = float(
+                WorkLog.objects.filter(
+                    ticket__project=p, is_deleted=False,
+                    log_date__year=year, log_date__month=month,
+                ).aggregate(t=Sum("hours"))["t"] or 0
+            )
+
+        days_left = (p.end_date - today).days if p.end_date else None
+        estimate = float(p.estimated_hours or 0)
+        hours_pct = round((logged_hours / estimate * 100), 1) if estimate > 0 else 0
+
+        project_list.append({
+            "id": str(p.id),
+            "name": p.name,
+            "code": p.code,
+            "client": p.client.name if p.client else None,
+            "manager": p.manager.full_name if p.manager else None,
+            "start_date": str(p.start_date) if p.start_date else None,
+            "end_date": str(p.end_date) if p.end_date else None,
+            "days_left": days_left,
+            "health": health,
+            "total_tickets": total_tickets,
+            "open_tickets": total_tickets - done_tickets,
+            "completion_pct": completion_pct,
+            "estimated_hours": estimate,
+            "logged_hours_month": round(logged_hours, 1),
+            "hours_utilization_pct": hours_pct,
+        })
+
+    return {
+        "summary": {"on_track": on_track, "at_risk": at_risk, "delayed": delayed},
+        "projects": project_list,
+    }
 
 
 @extend_schema(tags=["dashboard"], responses={200: OpenApiResponse(description="PMO dashboard KPIs")})
@@ -28,32 +111,64 @@ class PMODashboardView(APIView):
         year = int(request.query_params.get("year", today.year))
         month = int(request.query_params.get("month", today.month))
 
+<<<<<<< HEAD
         projects_qs = Project.objects.filter(is_deleted=False)
+=======
+        active_projects_qs = Project.objects.filter(is_deleted=False, is_active=True)
+        portfolio = _portfolio_projects(active_projects_qs, today, year, month)
+        health_summary = portfolio["summary"]
+
+>>>>>>> d47a457662f2f37aa28d0ef1657c61d04a7474ef
         project_summary = {
-            "total":    projects_qs.count(),
-            "active":   projects_qs.filter(is_active=True).count(),
-            "inactive": projects_qs.filter(is_active=False).count(),
+            "total":    Project.objects.filter(is_deleted=False).count(),
+            "active":   active_projects_qs.count(),
+            "inactive": Project.objects.filter(is_deleted=False, is_active=False).count(),
+            "on_track": health_summary["on_track"],
+            "at_risk":  health_summary["at_risk"],
+            "delayed":  health_summary["delayed"],
         }
 
         tickets_qs = Ticket.objects.filter(is_deleted=False)
         workitem_summary = {
             "open":        tickets_qs.filter(workflow_state__is_initial=True).count(),
-            "in_progress": tickets_qs.filter(workflow_state__is_initial=False, workflow_state__is_final=False).count(),
-            "done":        tickets_qs.filter(workflow_state__is_final=True).count(),
-            "total":       tickets_qs.count(),
+            "in_progress": tickets_qs.filter(
+                workflow_state__is_initial=False, workflow_state__is_final=False,
+            ).count(),
+            "done":  tickets_qs.filter(workflow_state__is_final=True).count(),
+            "total": tickets_qs.count(),
         }
         overdue_count = tickets_qs.filter(
-            due_date__lt=today,
-            workflow_state__is_final=False,
+            due_date__lt=today, workflow_state__is_final=False,
         ).count()
+        overdue_tickets = [
+            {
+                "id": str(t.id),
+                "ticket_id": t.ticket_id,
+                "title": t.title,
+                "project_code": t.project.code if t.project else None,
+                "project_name": t.project.name if t.project else None,
+                "due_date": str(t.due_date),
+                "days_overdue": (today - t.due_date).days,
+            }
+            for t in tickets_qs.filter(
+                due_date__lt=today, workflow_state__is_final=False,
+            ).select_related("project").order_by("due_date")[:25]
+        ]
+
+        ticket_by_type = list(
+            tickets_qs.values("type").annotate(count=Count("id")).order_by("-count")
+        )
 
         logs_this_month = WorkLog.objects.filter(
-            is_deleted=False, log_date__year=year, log_date__month=month
+            is_deleted=False, log_date__year=year, log_date__month=month,
         )
         total_logged = float(logs_this_month.aggregate(t=Sum("hours"))["t"] or 0)
-        billable_logged = float(logs_this_month.filter(is_billable=True).aggregate(t=Sum("hours"))["t"] or 0)
+        billable_logged = float(
+            logs_this_month.filter(is_billable=True).aggregate(t=Sum("hours"))["t"] or 0
+        )
         billing_util_pct = (billable_logged / total_logged * 100) if total_logged > 0 else 0
 
+<<<<<<< HEAD
         active_employees = Employee.objects.filter(is_active=True, is_deleted=False).count()
 
         over_allocated = []
@@ -66,32 +181,131 @@ class PMODashboardView(APIView):
             is_deleted=False, is_active=True
         ).select_related("client").order_by("-created_at")[:5]
         recent_projects_data = [
+=======
+        hours_by_project = [
+>>>>>>> d47a457662f2f37aa28d0ef1657c61d04a7474ef
             {
-                "id": str(p.id), "name": p.name, "code": p.code,
-                "is_active": p.is_active,
-                "client": p.client.name if p.client else None,
-                "end_date": str(p.end_date) if p.end_date else None,
+                "project_id": str(row["ticket__project_id"]),
+                "name": row["ticket__project__name"],
+                "code": row["ticket__project__code"],
+                "hours": round(float(row["hours"] or 0), 1),
             }
-            for p in recent_projects
+            for row in logs_this_month.filter(ticket__isnull=False)
+            .values("ticket__project_id", "ticket__project__name", "ticket__project__code")
+            .annotate(hours=Sum("hours"))
+            .order_by("-hours")[:8]
         ]
+
+        week_sunday, _ = week_bounds()
+        weekly_trend = []
+        for i in range(7, -1, -1):
+            ws = week_sunday - timedelta(weeks=i)
+            we = ws + timedelta(days=6)
+            wq = WorkLog.objects.filter(is_deleted=False, log_date__range=[ws, we])
+            w_total = float(wq.aggregate(t=Sum("hours"))["t"] or 0)
+            w_bill = float(wq.filter(is_billable=True).aggregate(t=Sum("hours"))["t"] or 0)
+            weekly_trend.append({
+                "week_start": str(ws),
+                "label": ws.strftime("%d %b"),
+                "total_hours": round(w_total, 1),
+                "billable_hours": round(w_bill, 1),
+            })
+
+        active_employees = Employee.objects.filter(is_active=True, is_deleted=False)
+        over_allocated = []
+        util_pcts = []
+        for emp in active_employees:
+            cap = CapacityService.employee_monthly_capacity(emp, year, month)
+            util_pcts.append(cap["utilization_percent"])
+            if cap["is_over_allocated"]:
+                over_allocated.append({"name": emp.full_name, "id": str(emp.id)})
+
+        avg_utilization = round(sum(util_pcts) / len(util_pcts), 1) if util_pcts else 0
+
+        week_sunday, _ = week_bounds()
+        missing_ts = missing_timesheets()
+        timesheet_week = {
+            "week_start": str(week_sunday),
+            "draft": WeeklyTimesheet.objects.filter(
+                week_start=week_sunday, status=TimesheetStatus.DRAFT, is_deleted=False,
+            ).count(),
+            "submitted": WeeklyTimesheet.objects.filter(
+                week_start=week_sunday, status=TimesheetStatus.SUBMITTED, is_deleted=False,
+            ).count(),
+            "approved": WeeklyTimesheet.objects.filter(
+                week_start=week_sunday, status=TimesheetStatus.APPROVED, is_deleted=False,
+            ).count(),
+            "rejected": WeeklyTimesheet.objects.filter(
+                week_start=week_sunday, status=TimesheetStatus.REJECTED, is_deleted=False,
+            ).count(),
+            "missing": len(missing_ts),
+            "missing_details": missing_ts,
+        }
+
+        alerts = []
+        if overdue_count:
+            alerts.append({
+                "key": "overdue_tickets",
+                "severity": "error", "title": "Overdue tickets",
+                "count": overdue_count, "path": "/tickets",
+                "detail": "Tickets past due date still open",
+            })
+        if health_summary["delayed"]:
+            alerts.append({
+                "key": "delayed_projects",
+                "severity": "error", "title": "Delayed projects",
+                "count": health_summary["delayed"], "path": "/projects",
+                "detail": "Projects past end date or critical path risk",
+            })
+        if health_summary["at_risk"]:
+            alerts.append({
+                "key": "at_risk_projects",
+                "severity": "warning", "title": "At-risk projects",
+                "count": health_summary["at_risk"], "path": "/projects",
+                "detail": "Timeline or completion rate needs attention",
+            })
+        if over_allocated:
+            alerts.append({
+                "key": "over_allocated",
+                "severity": "warning", "title": "Over-allocated staff",
+                "count": len(over_allocated), "path": "/allocation",
+                "detail": "Resource allocation exceeds 100%",
+            })
+        if timesheet_week["missing"]:
+            alerts.append({
+                "key": "missing_timesheets",
+                "severity": "warning", "title": "Missing timesheets",
+                "count": timesheet_week["missing"], "path": "/timesheets/reporting",
+                "detail": "Allocated employees without submitted timesheet",
+            })
 
         return Response({
             "date": str(today),
             "period": {"year": year, "month": month},
             "projects": project_summary,
+<<<<<<< HEAD
             "work_items": {**workitem_summary, "overdue": overdue_count},
+=======
+            "portfolio": portfolio,
+            "work_items": {**workitem_summary, "overdue": overdue_count, "overdue_tickets": overdue_tickets},
+            "ticket_by_type": ticket_by_type,
+>>>>>>> d47a457662f2f37aa28d0ef1657c61d04a7474ef
             "logging": {
-                "total_hours": total_logged,
-                "billable_hours": billable_logged,
-                "non_billable_hours": total_logged - billable_logged,
-                "billing_utilization_percent": round(billing_util_pct, 2),
+                "total_hours": round(total_logged, 1),
+                "billable_hours": round(billable_logged, 1),
+                "non_billable_hours": round(total_logged - billable_logged, 1),
+                "billing_utilization_percent": round(billing_util_pct, 1),
+                "hours_by_project": hours_by_project,
+                "weekly_trend": weekly_trend,
             },
             "team": {
-                "total_active": active_employees,
+                "total_active": active_employees.count(),
                 "over_allocated": over_allocated,
                 "over_allocated_count": len(over_allocated),
+                "avg_utilization_percent": avg_utilization,
             },
-            "recent_projects": recent_projects_data,
+            "timesheet_week": timesheet_week,
+            "alerts": alerts,
         })
 
 
@@ -545,6 +759,7 @@ class ProjectHealthView(APIView):
 
     def get(self, request):
         today = date.today()
+<<<<<<< HEAD
         projects = Project.objects.filter(is_deleted=False, is_active=True).select_related("client", "manager")
 
         on_track = at_risk = delayed = 0
@@ -586,6 +801,13 @@ class ProjectHealthView(APIView):
             "summary":  {"on_track": on_track, "at_risk": at_risk, "delayed": delayed},
             "projects": project_list,
         })
+=======
+        year = int(request.query_params.get("year", today.year))
+        month = int(request.query_params.get("month", today.month))
+        projects = Project.objects.filter(is_deleted=False, is_active=True)
+        portfolio = _portfolio_projects(projects, today, year, month)
+        return Response(portfolio)
+>>>>>>> d47a457662f2f37aa28d0ef1657c61d04a7474ef
 
 
 @extend_schema(tags=["dashboard"], responses={200: OpenApiResponse(description="HRMS dashboard KPIs")})
@@ -712,3 +934,55 @@ class HRMSDashboardView(APIView):
             "recent_joiners": recent_joiners,
             "payroll":        payroll_stats,
         })
+
+
+@extend_schema(tags=["dashboard"], responses={200: OpenApiResponse(description="Executive dashboard")})
+class ExecutiveDashboardView(APIView):
+    """Cross-module executive dashboard for a financial year (Apr–Mar)."""
+    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    required_permission = "pmt.dashboard.executive.view"
+
+    def get(self, request):
+        from .executive_service import build_executive_dashboard
+        from .fy_utils import current_fy_start
+
+        today = date.today()
+        try:
+            fy_start_year = int(request.query_params.get("fy_start_year", current_fy_start(today)))
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "Invalid fy_start_year."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            data = build_executive_dashboard(fy_start_year, today)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(data)
+
+
+@extend_schema(tags=["dashboard"], responses={200: OpenApiResponse(description="Executive project detail")})
+class ExecutiveProjectDetailView(APIView):
+    """Project financial drill-down for executive dashboard popup."""
+    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    required_permission = "pmt.dashboard.executive.view"
+
+    def get(self, request, project_id):
+        from .executive_service import build_project_executive_detail
+        from .fy_utils import current_fy_start
+
+        today = date.today()
+        try:
+            fy_start_year = int(request.query_params.get("fy_start_year", current_fy_start(today)))
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "Invalid fy_start_year."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            data = build_project_executive_detail(project_id, fy_start_year, today)
+        except Project.DoesNotExist:
+            return Response({"detail": "Project not found."}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(data)

@@ -24,7 +24,8 @@ Table names use module prefixes (`master_employee_*`, `hrms_*`, `project_*`, etc
 cd backend
 # Point DATABASE_URL / .env to your new empty database
 ./venv/bin/python manage.py migrate
-./venv/bin/python manage.py create_permissions   # optional: push roles to Keycloak
+./venv/bin/python manage.py seed_demo_data      # full demo: workflow, users, projects, CRM
+# Or step-by-step — see docs/SEED_DEMO_DATA.md
 ```
 
 ## Existing database (do not use squash)

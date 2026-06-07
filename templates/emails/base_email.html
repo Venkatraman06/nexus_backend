@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ company_name }}</title>
+</head>
+<body style="margin:0;padding:0;background:#f0f4f8;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f8;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+          <!-- Header -->
+          <tr>
+            <td style="background:#060f1e;border-radius:12px 12px 0 0;padding:28px 36px;text-align:center;">
+              <div style="display:inline-block;width:48px;height:48px;background:#1677ff;border-radius:12px;line-height:48px;font-size:22px;font-weight:800;color:#fff;margin-bottom:12px;">H</div>
+              <div style="color:#ffffff;font-size:20px;font-weight:700;letter-spacing:-0.3px;">{{ company_name }}</div>
+              <div style="color:rgba(255,255,255,0.45);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;margin-top:4px;">Enterprise Work Platform</div>
+            </td>
+          </tr>
+          <!-- Body -->
+          <tr>
+            <td style="background:#ffffff;padding:36px;border-left:1px solid #e8edf2;border-right:1px solid #e8edf2;">
+              {% block content %}{% endblock %}
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="background:#f8fafc;border-radius:0 0 12px 12px;padding:20px 36px;border:1px solid #e8edf2;border-top:none;text-align:center;">
+              <p style="margin:0 0 6px;color:#8896a8;font-size:12px;line-height:1.6;">
+                Need help? Contact us at
+                <a href="mailto:{{ support_email }}" style="color:#1677ff;text-decoration:none;">{{ support_email }}</a>
+              </p>
+              <p style="margin:0;color:#b0bac8;font-size:11px;">
+                &copy; 2025 {{ company_name }}. All rights reserved.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

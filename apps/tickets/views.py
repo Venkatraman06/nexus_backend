@@ -81,7 +81,9 @@ class TicketViewSet(BaseModelViewSet):
         "destroy":          "pmt.project.workitem.delete",
         "transition":       "pmt.project.workitem.transition",
         "attachments":      "pmt.project.workitem.view",
+        "delete_attachment": "pmt.project.workitem.update",
         "comments":         "pmt.project.workitem.view",
+        "comment_detail":   "pmt.project.workitem.view",
         "history":          "pmt.project.workitem.view",
         "children":         "pmt.project.workitem.view",
     }
@@ -248,8 +250,26 @@ class TicketViewSet(BaseModelViewSet):
                      if _field_display(ticket, field) is not None},
         )
 
+        if ticket.assignee_id:
+            from apps.notifications.constants import EventType, ReferenceType
+            from apps.notifications.publisher import publish_event
+            publish_event(
+                EventType.TICKET_ASSIGNED,
+                ReferenceType.TICKET,
+                str(ticket.id),
+                payload={
+                    "ticket_id": ticket.ticket_id,
+                    "title": ticket.title,
+                    "project_name": ticket.project.name if ticket.project else "",
+                    "assignee_id": str(ticket.assignee_id),
+                },
+                actor_id=str(user.id),
+                async_delivery=True,
+            )
+
     def perform_update(self, serializer):
         old_snap = _snapshot(serializer.instance)
+        old_assignee_id = serializer.instance.assignee_id
         ticket = serializer.save()
         new_snap = _snapshot(ticket)
         changes = _diff(old_snap, new_snap)
@@ -259,6 +279,23 @@ class TicketViewSet(BaseModelViewSet):
                 changed_by=self.request.user,
                 action="update",
                 changes=changes,
+            )
+
+        if ticket.assignee_id and ticket.assignee_id != old_assignee_id:
+            from apps.notifications.constants import EventType, ReferenceType
+            from apps.notifications.publisher import publish_event
+            publish_event(
+                EventType.TICKET_ASSIGNED,
+                ReferenceType.TICKET,
+                str(ticket.id),
+                payload={
+                    "ticket_id": ticket.ticket_id,
+                    "title": ticket.title,
+                    "project_name": ticket.project.name if ticket.project else "",
+                    "assignee_id": str(ticket.assignee_id),
+                },
+                actor_id=str(self.request.user.id),
+                async_delivery=True,
             )
 
     @action(detail=True, methods=["post"], url_path="transition")

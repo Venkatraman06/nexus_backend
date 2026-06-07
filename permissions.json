@@ -2,6 +2,7 @@
   {"name": "pmt.dashboard.own.view", "description": "View own employee dashboard", "category": "Dashboard"},
   {"name": "pmt.dashboard.project.view", "description": "View project / PMO dashboard", "category": "Dashboard"},
   {"name": "pmt.dashboard.hrms.view", "description": "View HRMS dashboard", "category": "Dashboard"},
+  {"name": "pmt.dashboard.executive.view", "description": "View executive / overall dashboard", "category": "Dashboard"},
 
   {"name": "pmt.master.hrms.view", "description": "View HRMS master data", "category": "Master"},
   {"name": "pmt.master.hrms.create", "description": "Create HRMS master records", "category": "Master"},
@@ -77,11 +78,38 @@
   {"name": "pmt.project.timesheet.create", "description": "Create timesheet entries", "category": "Project MS"},
   {"name": "pmt.project.timesheet.update", "description": "Update timesheet entries", "category": "Project MS"},
   {"name": "pmt.project.timesheet.delete", "description": "Delete timesheet entries", "category": "Project MS"},
+  {"name": "pmt.project.timesheet.submit", "description": "Submit weekly timesheets", "category": "Project MS"},
+  {"name": "pmt.project.timesheet.approve", "description": "Review and approve employee timesheets", "category": "Project MS"},
 
   {"name": "pmt.project.report.utilization", "description": "View utilization report", "category": "Project MS"},
   {"name": "pmt.project.report.portfolio", "description": "View portfolio report", "category": "Project MS"},
   {"name": "pmt.project.report.allocation", "description": "View allocation report", "category": "Project MS"},
 
   {"name": "pmt.permission.sync", "description": "Sync user permissions from Keycloak", "category": "Role"},
-  {"name": "pmt.permission.create", "description": "Push permissions catalog to Keycloak", "category": "Role"}
+  {"name": "pmt.permission.create", "description": "Push permissions catalog to Keycloak", "category": "Role"},
+
+  {"name": "pmt.finance.document.view",   "description": "View finance documents (quotations, invoices, POs)", "category": "CRM & Finance"},
+  {"name": "pmt.finance.document.create", "description": "Create finance documents",                           "category": "CRM & Finance"},
+  {"name": "pmt.finance.document.update", "description": "Update finance documents",                           "category": "CRM & Finance"},
+  {"name": "pmt.finance.document.delete", "description": "Delete finance documents",                           "category": "CRM & Finance"},
+
+  {"name": "pmt.payment.dashboard.view",  "description": "View AR / receivables dashboard",                   "category": "Payment & AR"},
+  {"name": "pmt.payment.contract.view",   "description": "View contracts",                                    "category": "Payment & AR"},
+  {"name": "pmt.payment.contract.create", "description": "Create contracts",                                  "category": "Payment & AR"},
+  {"name": "pmt.payment.contract.update", "description": "Update contracts",                                  "category": "Payment & AR"},
+  {"name": "pmt.payment.contract.delete", "description": "Delete contracts",                                  "category": "Payment & AR"},
+  {"name": "pmt.payment.invoice.view",    "description": "View invoices and milestones",                      "category": "Payment & AR"},
+  {"name": "pmt.payment.invoice.create",  "description": "Create invoices",                                   "category": "Payment & AR"},
+  {"name": "pmt.payment.invoice.update",  "description": "Update invoices",                                   "category": "Payment & AR"},
+  {"name": "pmt.payment.invoice.delete",  "description": "Delete / cancel invoices",                          "category": "Payment & AR"},
+  {"name": "pmt.payment.payment.view",    "description": "View payment collections",                          "category": "Payment & AR"},
+  {"name": "pmt.payment.payment.create",  "description": "Record payments and allocations",                   "category": "Payment & AR"},
+  {"name": "pmt.payment.payment.update",  "description": "Update payment records",                            "category": "Payment & AR"},
+  {"name": "pmt.payment.payment.delete",  "description": "Delete payment records",                            "category": "Payment & AR"},
+
+  {"name": "pmt.crm.expense.view",    "description": "View company expenses",           "category": "CRM & Finance"},
+  {"name": "pmt.crm.expense.create",  "description": "Create company expense records",  "category": "CRM & Finance"},
+  {"name": "pmt.crm.expense.update",  "description": "Update company expense records",  "category": "CRM & Finance"},
+  {"name": "pmt.crm.expense.delete",  "description": "Delete company expense records",  "category": "CRM & Finance"},
+  {"name": "pmt.crm.expense.approve", "description": "Approve or reject expenses",      "category": "CRM & Finance"}
 ]

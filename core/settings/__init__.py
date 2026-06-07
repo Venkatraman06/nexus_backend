@@ -7,4 +7,5 @@ from .keycloak import *  # noqa
 from .swagger import *  # noqa
 from .logger import *  # noqa
 from .email import *  # noqa
+from .brand import *  # noqa
 from .storage import *  # noqa

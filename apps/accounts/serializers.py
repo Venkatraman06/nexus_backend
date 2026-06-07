@@ -1,4 +1,6 @@
 from rest_framework import serializers
+
+from apps.common.validators import validate_phone
 from .models import Employee
 
 
@@ -86,6 +88,12 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
 
 
 class EmployeeCreateSerializer(serializers.ModelSerializer):
+    def validate_phone_number(self, value: str) -> str:
+        return validate_phone(value, "Phone number")
+
+    def validate_alternative_number(self, value: str) -> str:
+        return validate_phone(value, "Alternative number")
+
     class Meta:
         model = Employee
         fields = [
@@ -107,6 +115,12 @@ class EmployeeCreateSerializer(serializers.ModelSerializer):
 
 
 class EmployeeUpdateSerializer(serializers.ModelSerializer):
+    def validate_phone_number(self, value: str) -> str:
+        return validate_phone(value, "Phone number")
+
+    def validate_alternative_number(self, value: str) -> str:
+        return validate_phone(value, "Alternative number")
+
     class Meta:
         model = Employee
         fields = [

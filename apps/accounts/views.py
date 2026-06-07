@@ -127,6 +127,39 @@ class EmployeeViewSet(BaseModelViewSet):
             **{k: v for k, v in data.items() if k not in ("username",)},
         )
 
+        # Send welcome / onboarding email with set-password link
+        if keycloak_id and emp.email:
+            try:
+                from django.conf import settings
+                from apps.accounts.password_reset_service import create_onboard_token
+                from apps.accounts.email_service import send_welcome_onboard_email
+
+                token = create_onboard_token(str(emp.id), keycloak_id)
+                reset_link = f"{settings.FRONTEND_APP_URL}/set-password?token={token}"
+                send_welcome_onboard_email(
+                    to=emp.email,
+                    full_name=emp.full_name or username,
+                    username=username,
+                    reset_link=reset_link,
+                )
+            except Exception as exc:
+                logger.warning("Onboarding email failed for %s: %s", username, exc)
+
+        from apps.notifications.constants import EventType, ReferenceType
+        from apps.notifications.publisher import publish_event
+        publish_event(
+            EventType.EMPLOYEE_ONBOARDED,
+            ReferenceType.EMPLOYEE,
+            str(emp.id),
+            payload={
+                "employee_name": emp.full_name or username,
+                "employee_code": employee_code,
+                "designation": emp.designation_ref.name if emp.designation_ref_id else "",
+            },
+            actor_id=str(request.user.id),
+            async_delivery=True,
+        )
+
         out = EmployeeDetailSerializer(emp, context=self.get_serializer_context())
         return Response(out.data, status=status.HTTP_201_CREATED)
 
@@ -306,12 +339,21 @@ class MeView(APIView):
 
     @extend_schema(tags=["users"])
     def patch(self, request):
+        from apps.common.validators import validate_phone
+        from rest_framework.exceptions import ValidationError
+
         me = request.user
         allowed = {"first_name", "last_name", "phone_number", "bio", "profile_picture"}
         update_fields = []
         for field in allowed:
             if field in request.data:
-                setattr(me, field, request.data[field])
+                value = request.data[field]
+                if field == "phone_number":
+                    try:
+                        value = validate_phone(value, "Phone number")
+                    except ValidationError as exc:
+                        return Response(exc.detail, status=400)
+                setattr(me, field, value)
                 update_fields.append(field)
         if "profile_picture" in request.FILES:
             me.profile_picture = request.FILES["profile_picture"]

@@ -3,6 +3,7 @@ import re
 from rest_framework import serializers
 
 from apps.accounts.serializers import EmployeeDropdownSerializer
+from apps.common.validators import validate_phone
 from .models import Client, Project, ProjectHistory
 
 _PAN_RE  = re.compile(r'^[A-Z]{5}[0-9]{4}[A-Z]$')
@@ -22,6 +23,9 @@ class ClientSerializer(serializers.ModelSerializer):
             "latitude", "longitude", "formatted_address",
             "is_active", "created_at", "updated_at",
         ]
+
+    def validate_phone(self, value: str) -> str:
+        return validate_phone(value, "Phone number")
 
     def validate_pan_number(self, value: str) -> str:
         if not value:
@@ -84,7 +88,7 @@ class ProjectListSerializer(serializers.ModelSerializer):
             "business_type", "business_type_name",
             "billing_type", "billing_type_name",
             "is_active",
-            "start_date", "end_date", "estimated_hours", "logged_hours",
+            "start_date", "end_date", "estimated_hours", "budget", "logged_hours",
             "manager", "manager_name",
             "workflow_state", "workflow_state_name", "workflow_state_slug", "workflow_state_color",
             "created_at",
@@ -114,7 +118,7 @@ class ProjectDetailSerializer(serializers.ModelSerializer):
             "business_type", "business_type_name",
             "billing_type", "billing_type_name",
             "is_active",
-            "start_date", "end_date", "estimated_hours", "logged_hours",
+            "start_date", "end_date", "estimated_hours", "budget", "logged_hours",
             "remaining_hours", "manager", "manager_name",
             "workflow_state", "workflow_state_name", "workflow_state_slug", "workflow_state_color",
             "created_at", "updated_at",
@@ -131,7 +135,7 @@ class ProjectCreateSerializer(serializers.ModelSerializer):
         fields = [
             "name", "code", "description", "client",
             "business_type", "billing_type", "is_active",
-            "start_date", "end_date", "estimated_hours", "manager",
+            "start_date", "end_date", "estimated_hours", "budget", "manager",
         ]
 
     def validate_code(self, value: str) -> str:

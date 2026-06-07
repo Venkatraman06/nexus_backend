@@ -4,7 +4,10 @@ from django.urls import path
 from .views import EmployeeViewSet, EmployeeSyncView, EmployeeSimpleDropdownView, EmployeeCertificateViewSet, KeycloakGroupsView, MeView, OrgTreeView, EmployeeSearchView
 from .permission_views import PermissionSyncView, PermissionCreateView
 from .role_views import PermissionCatalogView, RoleListView, RoleDetailView, RolePermissionsUpdateView
-from .auth_views import TokenView, TokenRefreshView, LogoutView, ForgotPasswordView
+from .auth_views import (
+    TokenView, TokenRefreshView, LogoutView, ForgotPasswordView,
+    VerifyResetOtpView, ValidateResetTokenView, ResetPasswordView, OnboardSetPasswordView,
+)
 
 router = DefaultRouter()
 router.register("employees", EmployeeViewSet, basename="employee")
@@ -17,7 +20,11 @@ urlpatterns = [
     path("auth/token/",           TokenView.as_view(),         name="auth-token"),
     path("auth/token/refresh/",   TokenRefreshView.as_view(),  name="auth-token-refresh"),
     path("auth/logout/",          LogoutView.as_view(),        name="auth-logout"),
-    path("auth/forgot-password/", ForgotPasswordView.as_view(),name="auth-forgot-password"),
+    path("auth/forgot-password/",         ForgotPasswordView.as_view(),       name="auth-forgot-password"),
+    path("auth/forgot-password/verify/",    VerifyResetOtpView.as_view(),       name="auth-forgot-password-verify"),
+    path("auth/reset-password/",            ResetPasswordView.as_view(),        name="auth-reset-password"),
+    path("auth/reset-password/validate/",   ValidateResetTokenView.as_view(),   name="auth-reset-password-validate"),
+    path("auth/onboard/set-password/",      OnboardSetPasswordView.as_view(),   name="auth-onboard-set-password"),
 
     # ── Employee action endpoints (before router to avoid pk conflict) ─
     path("employees/org-tree/",       OrgTreeView.as_view(),           name="org-tree"),

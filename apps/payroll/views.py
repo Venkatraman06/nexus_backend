@@ -127,6 +127,22 @@ class PayrollApproveView(APIView):
                             status=status.HTTP_400_BAD_REQUEST)
         obj.status = PayrollStatus.FINALIZED
         obj.save(update_fields=["status"])
+
+        from apps.notifications.constants import EventType, ReferenceType
+        from apps.notifications.publisher import publish_event
+        publish_event(
+            EventType.PAYROLL_FINALIZED,
+            ReferenceType.PAYROLL,
+            str(obj.id),
+            payload={
+                "employee_id": str(obj.employee_id),
+                "period": f"{obj.month_name} {obj.year}",
+                "net_pay": str(obj.net_salary),
+            },
+            actor_id=str(request.user.id),
+            async_delivery=True,
+        )
+
         return Response(PayrollSerializer(obj).data)
 
 
