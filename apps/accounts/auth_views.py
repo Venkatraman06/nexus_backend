@@ -1,9 +1,13 @@
 """
 Auth API — all Keycloak-backed endpoints:
-  POST /auth/token/          — login with username + password
-  POST /auth/token/refresh/  — exchange refresh token
-  POST /auth/logout/         — invalidate refresh token
-  POST /auth/forgot-password/ — trigger Keycloak password-reset email
+  POST /auth/token/                    — login with username + password
+  POST /auth/token/refresh/              — exchange refresh token
+  POST /auth/logout/                   — invalidate refresh token
+  POST /auth/forgot-password/          — request 6-digit OTP (username or email)
+  POST /auth/forgot-password/verify/   — verify OTP, get reset token
+  POST /auth/reset-password/           — set new password with reset token
+  GET  /auth/reset-password/validate/  — validate reset/onboard token
+  POST /auth/onboard/set-password/     — set password from onboarding link
 """
 import logging
 
@@ -234,40 +238,230 @@ class LogoutView(APIView):
 
 @extend_schema(
     tags=["Authentication"],
-    summary="Trigger password reset email via Keycloak",
+    summary="Request password reset OTP (username or email)",
     request={"application/json": {
         "type": "object",
-        "properties": {"email": {"type": "string", "format": "email"}},
-        "required": ["email"],
+        "properties": {
+            "identifier": {"type": "string", "example": "john.doe"},
+        },
+        "required": ["identifier"],
     }},
     responses={
-        200: OpenApiResponse(description="Reset email sent (if account exists)"),
-        400: OpenApiResponse(description="email field missing"),
+        200: OpenApiResponse(description="OTP sent if account exists"),
+        400: OpenApiResponse(description="identifier missing"),
+        429: OpenApiResponse(description="Too many requests"),
     },
 )
 class ForgotPasswordView(APIView):
-    """Send Keycloak 'UPDATE_PASSWORD' action email to the user."""
+    """Step 1: send a 6-digit verification code to the user's email."""
     permission_classes = [AllowAny]
     authentication_classes = []
 
     def post(self, request):
-        email = (request.data.get("email") or "").strip().lower()
-        if not email:
+        identifier = (request.data.get("identifier") or request.data.get("email") or "").strip()
+        if not identifier:
             return Response(
-                {"error": "email is required"},
+                {"error": "username or email is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Always respond 200 to avoid user enumeration
-        try:
-            from apps.accounts.models import Employee
-            emp = Employee.objects.filter(email=email).first()
-            if emp and emp.keycloak_id:
-                admin = _kc_admin()
-                admin.send_update_account(emp.keycloak_id, ["UPDATE_PASSWORD"])
-        except Exception as exc:
-            logger.error("Forgot-password error: %s", exc)
+        from apps.accounts.password_reset_service import (
+            is_rate_limited,
+            request_password_reset_otp,
+        )
+        from apps.accounts.email_service import send_password_reset_otp_email
+
+        if is_rate_limited(identifier):
+            return Response(
+                {"error": "Too many reset attempts. Please try again later."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        sent, otp, ctx = request_password_reset_otp(identifier)
+        if sent and otp and ctx:
+            send_password_reset_otp_email(
+                to=ctx.email,
+                full_name=ctx.full_name,
+                otp=otp,
+            )
 
         return Response({
-            "message": "If an account with that email exists, a password reset link has been sent."
+            "message": "If an account with that username or email exists, a verification code has been sent.",
         })
+
+
+# ──────────────────────────────────────────────────────────
+# POST /auth/forgot-password/verify/
+# ──────────────────────────────────────────────────────────
+
+@extend_schema(
+    tags=["Authentication"],
+    summary="Verify password reset OTP",
+    request={"application/json": {
+        "type": "object",
+        "properties": {
+            "identifier": {"type": "string"},
+            "otp": {"type": "string", "example": "123456"},
+        },
+        "required": ["identifier", "otp"],
+    }},
+    responses={
+        200: OpenApiResponse(description="OTP verified — reset_token returned"),
+        400: OpenApiResponse(description="Invalid or expired OTP"),
+    },
+)
+class VerifyResetOtpView(APIView):
+    """Step 2: verify the 6-digit code and receive a short-lived reset token."""
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        identifier = (request.data.get("identifier") or "").strip()
+        otp = (request.data.get("otp") or "").strip()
+
+        if not identifier or not otp:
+            return Response(
+                {"error": "identifier and otp are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from apps.accounts.password_reset_service import verify_password_reset_otp
+
+        ok, reset_token, err = verify_password_reset_otp(identifier, otp)
+        if not ok:
+            return Response({"error": err}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"reset_token": reset_token})
+
+
+# ──────────────────────────────────────────────────────────
+# GET /auth/reset-password/validate/
+# POST /auth/reset-password/
+# ──────────────────────────────────────────────────────────
+
+@extend_schema(
+    tags=["Authentication"],
+    summary="Validate a reset or onboard token",
+    parameters=[{"name": "token", "in": "query", "required": True, "schema": {"type": "string"}}],
+    responses={
+        200: OpenApiResponse(description="Token is valid"),
+        400: OpenApiResponse(description="Token invalid or expired"),
+    },
+)
+class ValidateResetTokenView(APIView):
+    """Check whether a reset/onboard token is still valid before showing the form."""
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        token = (request.query_params.get("token") or "").strip()
+        onboard = request.query_params.get("onboard", "").lower() in ("1", "true", "yes")
+
+        if not token:
+            return Response({"error": "token is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.accounts.password_reset_service import validate_onboard_token, validate_reset_token
+
+        data = validate_onboard_token(token) if onboard else validate_reset_token(token)
+        if not data:
+            return Response({"error": "Invalid or expired link."}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"valid": True})
+
+
+@extend_schema(
+    tags=["Authentication"],
+    summary="Set a new password using reset token",
+    request={"application/json": {
+        "type": "object",
+        "properties": {
+            "reset_token": {"type": "string"},
+            "password": {"type": "string"},
+            "confirm_password": {"type": "string"},
+        },
+        "required": ["reset_token", "password", "confirm_password"],
+    }},
+    responses={
+        200: OpenApiResponse(description="Password updated"),
+        400: OpenApiResponse(description="Validation error"),
+    },
+)
+class ResetPasswordView(APIView):
+    """Step 3: set new password after OTP verification."""
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        reset_token = (request.data.get("reset_token") or "").strip()
+        password = request.data.get("password") or ""
+        confirm = request.data.get("confirm_password") or ""
+
+        if not reset_token:
+            return Response({"error": "reset_token is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if password != confirm:
+            return Response({"error": "Passwords do not match."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.accounts.password_validators import validate_password_strength
+        from apps.accounts.password_reset_service import reset_password_with_token
+
+        errors = validate_password_strength(password)
+        if errors:
+            return Response({"error": errors[0], "errors": errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        ok, err = reset_password_with_token(reset_token, password, onboard=False)
+        if not ok:
+            return Response({"error": err}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"message": "Password updated successfully. You can now sign in."})
+
+
+# ──────────────────────────────────────────────────────────
+# POST /auth/onboard/set-password/
+# ──────────────────────────────────────────────────────────
+
+@extend_schema(
+    tags=["Authentication"],
+    summary="Set password from employee onboarding link",
+    request={"application/json": {
+        "type": "object",
+        "properties": {
+            "token": {"type": "string"},
+            "password": {"type": "string"},
+            "confirm_password": {"type": "string"},
+        },
+        "required": ["token", "password", "confirm_password"],
+    }},
+    responses={
+        200: OpenApiResponse(description="Password set"),
+        400: OpenApiResponse(description="Validation error"),
+    },
+)
+class OnboardSetPasswordView(APIView):
+    """Set password from the welcome email link (no OTP required)."""
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        token = (request.data.get("token") or "").strip()
+        password = request.data.get("password") or ""
+        confirm = request.data.get("confirm_password") or ""
+
+        if not token:
+            return Response({"error": "token is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if password != confirm:
+            return Response({"error": "Passwords do not match."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.accounts.password_validators import validate_password_strength
+        from apps.accounts.password_reset_service import reset_password_with_token
+
+        errors = validate_password_strength(password)
+        if errors:
+            return Response({"error": errors[0], "errors": errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        ok, err = reset_password_with_token(token, password, onboard=True)
+        if not ok:
+            return Response({"error": err}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"message": "Password set successfully. You can now sign in."})

@@ -15,6 +15,16 @@ logger = logging.getLogger(__name__)
 
 
 def custom_exception_handler(exc, context):
+    # Django model ValidationError (e.g. Allocation.clean()) → DRF 400
+    if isinstance(exc, DjangoValidationError):
+        if hasattr(exc, "message_dict"):
+            detail = exc.message_dict
+        elif hasattr(exc, "messages"):
+            detail = exc.messages
+        else:
+            detail = str(exc)
+        exc = ValidationError(detail=detail)
+
     response = exception_handler(exc, context)
 
     if response is not None:

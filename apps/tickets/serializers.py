@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .models import Ticket, TicketAttachment, TicketComment, TicketHistory
+from .validators import validate_ticket_against_project, validate_ticket_attachment_file
 
 
 class TicketAttachmentSerializer(serializers.ModelSerializer):
@@ -12,7 +13,14 @@ class TicketAttachmentSerializer(serializers.ModelSerializer):
             "id", "file", "file_url", "file_name", "file_size",
             "content_type", "uploaded_by", "uploaded_at",
         ]
-        read_only_fields = ["file_url", "uploaded_at"]
+        read_only_fields = [
+            "id", "file_url", "file_name", "file_size",
+            "content_type", "uploaded_by", "uploaded_at",
+        ]
+
+    def validate_file(self, file):
+        validate_ticket_attachment_file(file)
+        return file
 
     def get_file_url(self, obj):
         try:
@@ -39,7 +47,13 @@ class TicketCommentSerializer(serializers.ModelSerializer):
             "id", "ticket", "author", "author_name", "author_avatar",
             "body", "is_edited", "created_at", "updated_at",
         ]
-        read_only_fields = ["author", "is_edited", "created_at", "updated_at"]
+        read_only_fields = [
+            "id", "ticket", "author", "author_name", "author_avatar",
+            "is_edited", "created_at", "updated_at",
+        ]
+        extra_kwargs = {
+            "body": {"required": True, "allow_blank": False},
+        }
 
     def get_author_name(self, obj):
         return obj.author.full_name if obj.author else None
@@ -157,6 +171,25 @@ class TicketCreateSerializer(serializers.ModelSerializer):
             "assignee", "reporter", "due_date", "original_estimate",
             "parent", "approved", "notify_users",
         ]
+
+    def validate(self, data):
+        project = data.get("project") or (self.instance.project if self.instance else None)
+
+        if self.instance:
+            if "due_date" in data:
+                validate_ticket_against_project(project=project, due_date=data.get("due_date"))
+            if "original_estimate" in data:
+                validate_ticket_against_project(
+                    project=project,
+                    original_estimate=data.get("original_estimate"),
+                )
+        else:
+            validate_ticket_against_project(
+                project=project,
+                due_date=data.get("due_date"),
+                original_estimate=data.get("original_estimate"),
+            )
+        return data
 
     def create(self, validated_data):
         notify_users = validated_data.pop("notify_users", [])

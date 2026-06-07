@@ -1,6 +1,7 @@
 from django.db import models
 from django.core.exceptions import ValidationError
 
+from apps.common.constants import WorkLogCategory
 from apps.common.models import BaseModel
 
 
@@ -22,8 +23,20 @@ class WorkLog(BaseModel):
     )
     log_date = models.DateField()
     hours = models.DecimalField(max_digits=5, decimal_places=2)
+    description = models.TextField(blank=True, default="", help_text="Work performed")
     remarks = models.TextField(blank=True, default="")
+    category = models.CharField(
+        max_length=15,
+        choices=WorkLogCategory.choices,
+        default=WorkLogCategory.BILLABLE,
+    )
     is_billable = models.BooleanField(default=True)
+    weekly_timesheet = models.ForeignKey(
+        "timesheets.WeeklyTimesheet",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="work_logs",
+    )
 
     class Meta:
         db_table = "project_work_log"
@@ -36,6 +49,10 @@ class WorkLog(BaseModel):
     def __str__(self):
         ref = self.ticket.ticket_id if self.ticket else "—"
         return f"{self.employee} | {ref} | {self.log_date} | {self.hours}h"
+
+    def save(self, *args, **kwargs):
+        self.is_billable = self.category == WorkLogCategory.BILLABLE
+        super().save(*args, **kwargs)
 
     def clean(self):
         if self.hours <= 0:

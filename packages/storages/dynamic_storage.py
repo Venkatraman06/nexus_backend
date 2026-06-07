@@ -15,7 +15,14 @@ def _get_config():
 
 
 class DynamicS3Storage(Storage):
-    """Resolves MinIO/S3 config at runtime from settings."""
+    """Resolves MinIO/S3 config at runtime from settings.
+
+    Django's STORAGES handler passes OPTIONS as kwargs on instantiation;
+    we accept and ignore them because config is read lazily from settings.
+    """
+
+    def __init__(self, **kwargs):
+        pass
 
     @property
     def _backend(self):

@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from apps.accounts.serializers import EmployeeListSerializer
@@ -33,6 +34,20 @@ class AllocationCreateSerializer(serializers.ModelSerializer):
             "employee", "project", "allocation_percentage",
             "start_date", "end_date", "notes",
         ]
+
+    def validate(self, attrs):
+        instance = self.instance or Allocation()
+        for key, value in attrs.items():
+            setattr(instance, key, value)
+        try:
+            instance.clean()
+        except DjangoValidationError as exc:
+            if hasattr(exc, "message_dict"):
+                raise serializers.ValidationError(exc.message_dict)
+            if hasattr(exc, "messages"):
+                raise serializers.ValidationError({"detail": exc.messages})
+            raise serializers.ValidationError(str(exc))
+        return attrs
 
 
 class EmployeeCapacitySerializer(serializers.Serializer):

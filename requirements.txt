@@ -30,6 +30,9 @@ django-simple-history==3.8.0
 # Static files
 whitenoise==6.9.0
 
+# Finance — PDF generation (optional; falls back to print-ready HTML if absent)
+xhtml2pdf==0.2.16
+
 # Utils
 django-cleanup==9.0.0
 python-decouple==3.8

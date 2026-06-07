@@ -728,6 +728,25 @@ class MyLeaveRequestListView(APIView):
         serializer = LeaveRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         leave = serializer.save(employee=request.user)
+
+        from apps.notifications.constants import EventType, ReferenceType
+        from apps.notifications.publisher import publish_event
+        publish_event(
+            EventType.LEAVE_REQUESTED,
+            ReferenceType.LEAVE,
+            str(leave.id),
+            payload={
+                "employee_id": str(request.user.id),
+                "employee_name": request.user.full_name,
+                "leave_type": leave.leave_type.name if leave.leave_type else "",
+                "start_date": leave.start_date.isoformat(),
+                "end_date": leave.end_date.isoformat(),
+                "days_count": leave.days_count,
+            },
+            actor_id=str(request.user.id),
+            async_delivery=True,
+        )
+
         return Response(LeaveRequestSerializer(leave).data, status=status.HTTP_201_CREATED)
 
 

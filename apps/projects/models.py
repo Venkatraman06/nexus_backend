@@ -59,6 +59,10 @@ class Project(BaseModel):
     start_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)
     estimated_hours = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    budget = models.DecimalField(
+        max_digits=14, decimal_places=2, default=0,
+        help_text="Total contract value (INR). Milestones and invoices cannot exceed this.",
+    )
     manager = models.ForeignKey(
         "accounts.Employee",
         on_delete=models.SET_NULL,

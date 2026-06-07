@@ -58,6 +58,7 @@ class ProjectViewSet(BaseModelViewSet):
         "partial_update":     "pmt.project.update",
         "destroy":            "pmt.project.delete",
         "summary":            "pmt.project.view",
+        "billing_summary":    "pmt.project.view",
         "generate_code":      "pmt.project.view",
         "history":            "pmt.project.view",
         "transition":         "pmt.project.update",
@@ -74,6 +75,7 @@ class ProjectViewSet(BaseModelViewSet):
         "start_date":        "Start Date",
         "end_date":          "End Date",
         "estimated_hours":   "Estimated Hours",
+        "budget":            "Project Budget",
         "manager":           "Manager",
         "workflow_state":    "Workflow State",
     }
@@ -88,6 +90,11 @@ class ProjectViewSet(BaseModelViewSet):
             return project.workflow_state.name if project.workflow_state else None
         if field == "is_active":
             return "Active" if project.is_active else "Inactive"
+        if field == "budget":
+            val = getattr(project, field, None)
+            if val is None:
+                return None
+            return f"₹{float(val):,.2f}"
         if field == "description":
             return "(updated)" if project.description else "(cleared)"
         val = getattr(project, field, None)
@@ -146,8 +153,24 @@ class ProjectViewSet(BaseModelViewSet):
                      if self._field_display(project, field) is not None},
         )
 
+        if project.manager_id:
+            from apps.notifications.constants import EventType, ReferenceType
+            from apps.notifications.publisher import publish_event
+            publish_event(
+                EventType.PROJECT_MANAGER_ASSIGNED,
+                ReferenceType.PROJECT,
+                str(project.id),
+                payload={
+                    "project_name": project.name,
+                    "manager_id": str(project.manager_id),
+                },
+                actor_id=str(self.request.user.id),
+                async_delivery=True,
+            )
+
     def perform_update(self, serializer):
         old_snap = self._snapshot(serializer.instance)
+        old_manager_id = serializer.instance.manager_id
         project = serializer.save()
         new_snap = self._snapshot(project)
         changes = self._diff(old_snap, new_snap)
@@ -157,6 +180,21 @@ class ProjectViewSet(BaseModelViewSet):
                 changed_by=self.request.user,
                 action="update",
                 changes=changes,
+            )
+
+        if project.manager_id and project.manager_id != old_manager_id:
+            from apps.notifications.constants import EventType, ReferenceType
+            from apps.notifications.publisher import publish_event
+            publish_event(
+                EventType.PROJECT_MANAGER_ASSIGNED,
+                ReferenceType.PROJECT,
+                str(project.id),
+                payload={
+                    "project_name": project.name,
+                    "manager_id": str(project.manager_id),
+                },
+                actor_id=str(self.request.user.id),
+                async_delivery=True,
             )
 
     @action(detail=False, methods=["get"], url_path="dropdown")
@@ -300,4 +338,11 @@ class ProjectViewSet(BaseModelViewSet):
             "total_tickets": total_tickets,
             "open_tickets": open_tickets,
             "estimated_hours": float(project.estimated_hours),
+            "budget": float(project.budget),
         })
+
+    @action(detail=True, methods=["get"], url_path="billing-summary")
+    def billing_summary(self, request, pk=None):
+        from apps.payment.budget_service import project_budget_summary
+        project = self.get_object()
+        return Response(project_budget_summary(project))
