@@ -1,4 +1,3 @@
-
 from datetime import date, timedelta
 
 from django.db.models import Sum, Count, Q, Avg
@@ -111,14 +110,10 @@ class PMODashboardView(APIView):
         year = int(request.query_params.get("year", today.year))
         month = int(request.query_params.get("month", today.month))
 
-<<<<<<< HEAD
-        projects_qs = Project.objects.filter(is_deleted=False)
-=======
         active_projects_qs = Project.objects.filter(is_deleted=False, is_active=True)
         portfolio = _portfolio_projects(active_projects_qs, today, year, month)
         health_summary = portfolio["summary"]
 
->>>>>>> d47a457662f2f37aa28d0ef1657c61d04a7474ef
         project_summary = {
             "total":    Project.objects.filter(is_deleted=False).count(),
             "active":   active_projects_qs.count(),
@@ -168,22 +163,7 @@ class PMODashboardView(APIView):
         )
         billing_util_pct = (billable_logged / total_logged * 100) if total_logged > 0 else 0
 
-<<<<<<< HEAD
-        active_employees = Employee.objects.filter(is_active=True, is_deleted=False).count()
-
-        over_allocated = []
-        for emp in Employee.objects.filter(is_active=True, is_deleted=False):
-            cap = CapacityService.employee_monthly_capacity(emp, year, month)
-            if cap["is_over_allocated"]:
-                over_allocated.append(emp.full_name)
-
-        recent_projects = Project.objects.filter(
-            is_deleted=False, is_active=True
-        ).select_related("client").order_by("-created_at")[:5]
-        recent_projects_data = [
-=======
         hours_by_project = [
->>>>>>> d47a457662f2f37aa28d0ef1657c61d04a7474ef
             {
                 "project_id": str(row["ticket__project_id"]),
                 "name": row["ticket__project__name"],
@@ -283,13 +263,9 @@ class PMODashboardView(APIView):
             "date": str(today),
             "period": {"year": year, "month": month},
             "projects": project_summary,
-<<<<<<< HEAD
-            "work_items": {**workitem_summary, "overdue": overdue_count},
-=======
             "portfolio": portfolio,
             "work_items": {**workitem_summary, "overdue": overdue_count, "overdue_tickets": overdue_tickets},
             "ticket_by_type": ticket_by_type,
->>>>>>> d47a457662f2f37aa28d0ef1657c61d04a7474ef
             "logging": {
                 "total_hours": round(total_logged, 1),
                 "billable_hours": round(billable_logged, 1),
@@ -311,6 +287,7 @@ class PMODashboardView(APIView):
 
 @extend_schema(tags=["dashboard"], responses={200: OpenApiResponse(description="Resource utilization heatmap")})
 class UtilizationHeatmapView(APIView):
+    """Resource utilization heatmap — employee vs project matrix."""
     permission_classes = [IsAuthenticated, HasKeycloakPermission]
     required_permission = "pmt.project.report.utilization"
 
@@ -322,6 +299,7 @@ class UtilizationHeatmapView(APIView):
         matrix = []
         for emp in employees:
             cap = CapacityService.employee_monthly_capacity(emp, year, month)
+            # Per-project breakdown
             allocs = Allocation.objects.filter(
                 employee=emp, is_deleted=False
             ).select_related("project")
@@ -393,19 +371,20 @@ class EmployeeDashboardView(APIView):
             ).count(),
         }
 
+        # ── Recent open/in-progress tickets ──────────────────────────
         recent_items = my_items.filter(
             workflow_state__is_final=False
         ).select_related("project", "workflow_state").order_by("due_date")[:8]
         recent_items_data = [
             {
-                "id":            str(t.id),
+                "id":           str(t.id),
                 "ticket_number": t.ticket_id,
-                "title":         t.title,
-                "type":          t.type,
-                "status":        t.workflow_state.name if t.workflow_state else "",
-                "priority":      t.priority,
-                "due_date":      str(t.due_date) if t.due_date else None,
-                "project":       t.project.name,
+                "title":        t.title,
+                "type":         t.type,
+                "status":       t.workflow_state.name if t.workflow_state else "",
+                "priority":     t.priority,
+                "due_date":     str(t.due_date) if t.due_date else None,
+                "project":      t.project.name,
             }
             for t in recent_items
         ]
@@ -431,12 +410,13 @@ class EmployeeDashboardView(APIView):
             for a in allocations
         ]
 
-        # ── Timesheet ─────────────────────────────────────────────────
+        # ── Timesheet — this week ─────────────────────────────────────
         week_logs = WorkLog.objects.filter(
             employee=me, is_deleted=False, log_date__range=[start_of_week, today]
         )
         weekly_hours = float(week_logs.aggregate(t=Sum("hours"))["t"] or 0)
 
+        # Daily breakdown for current month (for the mini chart)
         daily_logs = list(
             WorkLog.objects.filter(
                 employee=me, is_deleted=False, log_date__range=[month_start, today]
@@ -449,18 +429,19 @@ class EmployeeDashboardView(APIView):
             d["log_date"] = str(d["log_date"])
             d["hours"] = float(d["hours"])
 
+        # ── Recent work logs ──────────────────────────────────────────
         recent_logs = WorkLog.objects.filter(
             employee=me, is_deleted=False
         ).select_related("ticket__project").order_by("-log_date")[:10]
         recent_logs_data = [
             {
-                "id":          str(wl.id),
-                "log_date":    str(wl.log_date),
-                "hours":       float(wl.hours),
-                "notes":       wl.remarks or "",
-                "work_item":   wl.ticket.title if wl.ticket_id else "",
-                "ticket":      wl.ticket.ticket_id if wl.ticket_id else "",
-                "project":     wl.ticket.project.name if wl.ticket_id else "",
+                "id":         str(wl.id),
+                "log_date":   str(wl.log_date),
+                "hours":      float(wl.hours),
+                "notes":      wl.remarks or "",
+                "work_item":  wl.ticket.title if wl.ticket_id else "",
+                "ticket":     wl.ticket.ticket_id if wl.ticket_id else "",
+                "project":    wl.ticket.project.name if wl.ticket_id else "",
                 "is_billable": wl.is_billable,
             }
             for wl in recent_logs
@@ -468,34 +449,9 @@ class EmployeeDashboardView(APIView):
 
         # ── Attendance — today ────────────────────────────────────────
         from apps.attendance.models import AttendanceBreak
-
         today_attendance = AttendanceRecord.objects.filter(
             employee=me, date=today, is_deleted=False
         ).prefetch_related("breaks").first()
-
-        # ── FIX 1: Check if HR enabled clock-in for this employee today ──
-        # Import whichever model name your project uses.
-        # Try both common names gracefully.
-        clockin_enabled = False
-        try:
-            from apps.attendance.models import AttendanceClockInEnable
-            clockin_enabled = AttendanceClockInEnable.objects.filter(
-                employee=me,
-                date=today,
-                enabled=True,
-            ).exists()
-        except ImportError:
-            try:
-                from apps.attendance.models import ClockInEnable
-                clockin_enabled = ClockInEnable.objects.filter(
-                    employee=me,
-                    date=today,
-                    enabled=True,
-                ).exists()
-            except ImportError:
-                # Model not yet created — default False, button stays disabled
-                clockin_enabled = False
-
         if today_attendance:
             import datetime as dt
             ci = today_attendance.check_in
@@ -518,27 +474,18 @@ class EmployeeDashboardView(APIView):
                 for b in today_attendance.breaks.filter(is_deleted=False).order_by("start_time")
             ]
             attendance_today = {
-                "status":              today_attendance.status,
-                "check_in":            ci.strftime("%H:%M") if ci else None,
-                "check_out":           co.strftime("%H:%M") if co else None,
-                "duration_hours":      duration,
-                "working_hours":       today_attendance.working_hours,
-                "total_break_minutes": today_attendance.total_break_minutes,
-                "breaks":              breaks_data,
-                # ── FIX 1: added field ──
-                "clockin_enabled":     clockin_enabled,
+                "status":               today_attendance.status,
+                "check_in":             ci.strftime("%H:%M") if ci else None,
+                "check_out":            co.strftime("%H:%M") if co else None,
+                "duration_hours":       duration,
+                "working_hours":        today_attendance.working_hours,
+                "total_break_minutes":  today_attendance.total_break_minutes,
+                "breaks":               breaks_data,
             }
         else:
             attendance_today = {
-                "status":              None,
-                "check_in":            None,
-                "check_out":           None,
-                "duration_hours":      0,
-                "working_hours":       0,
-                "total_break_minutes": 0,
-                "breaks":              [],
-                # ── FIX 1: added field ──
-                "clockin_enabled":     clockin_enabled,
+                "status": None, "check_in": None, "check_out": None,
+                "duration_hours": 0, "working_hours": 0, "total_break_minutes": 0, "breaks": [],
             }
 
         # ── Attendance — this month ───────────────────────────────────
@@ -558,13 +505,13 @@ class EmployeeDashboardView(APIView):
             employee=me, year=today.year
         ).select_related("leave_type"):
             leave_balances.append({
-                "leave_type": lb.leave_type.name,
-                "code":       lb.leave_type.code,
-                "color":      lb.leave_type.color,
-                "is_paid":    lb.leave_type.is_paid,
-                "total":      float(lb.total_days),
-                "used":       float(lb.used_days),
-                "remaining":  lb.remaining_days,
+                "leave_type":  lb.leave_type.name,
+                "code":        lb.leave_type.code,
+                "color":       lb.leave_type.color,
+                "is_paid":     lb.leave_type.is_paid,
+                "total":       float(lb.total_days),
+                "used":        float(lb.used_days),
+                "remaining":   lb.remaining_days,
             })
 
         # ── Work & break statistics — this month ─────────────────────
@@ -585,6 +532,7 @@ class EmployeeDashboardView(APIView):
         except Exception:
             pass
 
+        # On-time stats (only if shift is configured)
         on_time = late = early = 0
         if shift_start_time:
             import datetime as _dt2
@@ -619,28 +567,6 @@ class EmployeeDashboardView(APIView):
             for lr in recent_leaves
         ]
 
-        # ── FIX 2: WFH status for this employee ───────────────────────
-        # wfh_allowed is a boolean field on the Employee model that HR
-        # toggles from the Attendance → WFH Toggle tab.
-        wfh_allowed = bool(getattr(me, "wfh_allowed", False))
-
-        # Check if there is already a pending WFH request for today or future
-        pending_wfh = False
-        try:
-            from apps.attendance.models import WFHRequest
-            pending_wfh = WFHRequest.objects.filter(
-                employee=me,
-                status="PENDING",
-                requested_date__gte=today,
-            ).exists()
-        except ImportError:
-            pending_wfh = False
-
-        wfh_status = {
-            "wfh_enabled":          wfh_allowed,
-            "pending_wfh_request":  pending_wfh,
-        }
-
         # ── Reporting hierarchy ───────────────────────────────────────
         def _pic(emp):
             try:
@@ -664,15 +590,18 @@ class EmployeeDashboardView(APIView):
             return d
 
         def _count_all_reports(manager_id, all_emp_ids_by_manager):
+            """Recursively count descendants using a pre-built map."""
             directs = all_emp_ids_by_manager.get(manager_id, [])
             return sum(1 + _count_all_reports(uid, all_emp_ids_by_manager) for uid in directs)
 
+        # Build manager→children map once
         emp_manager_map: dict[str, list[str]] = {}
         for e in Employee.objects.filter(is_active=True, is_deleted=False).values("id", "manager_id"):
             if e["manager_id"]:
                 key = str(e["manager_id"])
                 emp_manager_map.setdefault(key, []).append(str(e["id"]))
 
+        # Manager node
         manager_node = None
         if me.manager_id:
             try:
@@ -683,6 +612,7 @@ class EmployeeDashboardView(APIView):
             except Employee.DoesNotExist:
                 pass
 
+        # Direct reports
         direct_reports_qs = Employee.objects.filter(
             manager=me, is_active=True, is_deleted=False
         ).select_related("designation_ref", "department_ref").order_by("first_name", "last_name")
@@ -700,6 +630,7 @@ class EmployeeDashboardView(APIView):
         }
 
         # ── Payslips — current financial year ────────────────────────
+        # Financial year: Apr of current/prev year → Mar of next year
         fy_start_year = today.year if today.month >= 4 else today.year - 1
         fy_start = date(fy_start_year, 4, 1)
         fy_end   = date(fy_start_year + 1, 3, 31)
@@ -726,88 +657,47 @@ class EmployeeDashboardView(APIView):
             "recent_items": recent_items_data,
             "my_projects":  my_projects,
             "timesheet": {
-                "weekly_hours":   weekly_hours,
-                "expected_hours": 40,
-                "daily_logs":     daily_logs,
+                "weekly_hours":    weekly_hours,
+                "expected_hours":  40,
+                "daily_logs":      daily_logs,
             },
-            "recent_logs":        recent_logs_data,
-            "attendance_today":   attendance_today,   # now includes clockin_enabled
-            "attendance_month":   attendance_month,
-            "wfh_status":         wfh_status,         # NEW
+            "recent_logs":       recent_logs_data,
+            "attendance_today":  attendance_today,
+            "attendance_month":  attendance_month,
             "checkin_stats": {
-                "avg_working_hours":   round(total_work_hours / max(working_days_count, 1), 2),
-                "avg_break_minutes":   round(total_break_mins  / max(working_days_count, 1), 1),
+                "avg_working_hours": round(total_work_hours / max(working_days_count, 1), 2),
+                "avg_break_minutes": round(total_break_mins  / max(working_days_count, 1), 1),
                 "total_working_hours": round(total_work_hours, 2),
                 "total_break_minutes": total_break_mins,
                 "working_days_count":  working_days_count,
-                "on_time":  on_time,
-                "late":     late,
-                "early":    early,
+                "on_time":   on_time,
+                "late":      late,
+                "early":     early,
             },
-            "leave_balances":      leave_balances,
-            "leave_requests":      leave_requests_data,
-            "payslips":            payslips_data,
-            "payslips_fy":         f"FY {fy_start_year}-{str(fy_start_year + 1)[-2:]}",
-            "reporting_hierarchy": reporting_hierarchy,
+            "leave_balances":    leave_balances,
+            "leave_requests":    leave_requests_data,
+            "payslips":             payslips_data,
+            "payslips_fy":          f"FY {fy_start_year}-{str(fy_start_year + 1)[-2:]}",
+            "reporting_hierarchy":  reporting_hierarchy,
         })
 
 
 @extend_schema(tags=["dashboard"], responses={200: OpenApiResponse(description="Project health summary")})
 class ProjectHealthView(APIView):
+    """
+    Returns on-track / at-risk / delayed counts and per-project health signals
+    based on due dates and ticket completion rate.
+    """
     permission_classes = [IsAuthenticated, HasKeycloakPermission]
     required_permission = "pmt.dashboard.project.view"
 
     def get(self, request):
         today = date.today()
-<<<<<<< HEAD
-        projects = Project.objects.filter(is_deleted=False, is_active=True).select_related("client", "manager")
-
-        on_track = at_risk = delayed = 0
-        project_list = []
-
-        for p in projects:
-            health = "ON_TRACK"
-            if p.end_date and p.end_date < today:
-                health = "DELAYED"
-            elif p.end_date:
-                days_left  = (p.end_date - today).days
-                total_days = (p.end_date - p.start_date).days if p.start_date else None
-                open_tickets  = Ticket.objects.filter(project=p, is_deleted=False, workflow_state__is_final=False).count()
-                total_tickets = Ticket.objects.filter(project=p, is_deleted=False).count()
-                open_ratio    = (open_tickets / total_tickets) if total_tickets else 0
-                if total_days and days_left / total_days < 0.2 and open_ratio > 0.4:
-                    health = "DELAYED"
-                elif (total_days and days_left / total_days < 0.35) or open_ratio > 0.6:
-                    health = "AT_RISK"
-
-            if health == "ON_TRACK":
-                on_track += 1
-            elif health == "AT_RISK":
-                at_risk += 1
-            else:
-                delayed += 1
-
-            project_list.append({
-                "id":      str(p.id),
-                "name":    p.name,
-                "code":    p.code,
-                "client":  p.client.name if p.client else None,
-                "manager": p.manager.full_name if p.manager else None,
-                "end_date": str(p.end_date) if p.end_date else None,
-                "health":  health,
-            })
-
-        return Response({
-            "summary":  {"on_track": on_track, "at_risk": at_risk, "delayed": delayed},
-            "projects": project_list,
-        })
-=======
         year = int(request.query_params.get("year", today.year))
         month = int(request.query_params.get("month", today.month))
         projects = Project.objects.filter(is_deleted=False, is_active=True)
         portfolio = _portfolio_projects(projects, today, year, month)
         return Response(portfolio)
->>>>>>> d47a457662f2f37aa28d0ef1657c61d04a7474ef
 
 
 @extend_schema(tags=["dashboard"], responses={200: OpenApiResponse(description="HRMS dashboard KPIs")})
@@ -824,11 +714,14 @@ class HRMSDashboardView(APIView):
         month_start = today.replace(day=1)
         last_30 = today - timedelta(days=30)
 
+        # ── Headcount ────────────────────────────────────────────────
         emp_qs = Employee.objects.filter(is_active=True, is_deleted=False)
         total_active = emp_qs.count()
 
+        # New joiners this month
         new_joiners_count = emp_qs.filter(joining_date__gte=month_start).count()
 
+        # By department
         dept_dist = list(
             emp_qs.values("department_ref__name")
             .annotate(count=Count("id"))
@@ -839,6 +732,7 @@ class HRMSDashboardView(APIView):
             for d in dept_dist
         ]
 
+        # By keycloak group (role distribution)
         group_dist = list(
             emp_qs.values("keycloak_group")
             .annotate(count=Count("id"))
@@ -849,6 +743,7 @@ class HRMSDashboardView(APIView):
             for g in group_dist
         ]
 
+        # ── Today's attendance ────────────────────────────────────────
         today_records = AttendanceRecord.objects.filter(date=today, is_deleted=False)
         att_counts = {s: 0 for s in ["PRESENT", "WFH", "HALF_DAY", "ON_LEAVE", "ABSENT"]}
         for rec in today_records.values("status").annotate(n=Count("id")):
@@ -860,27 +755,30 @@ class HRMSDashboardView(APIView):
             ((att_counts["PRESENT"] + att_counts["WFH"]) / total_active * 100) if total_active else 0, 1
         )
 
+        # ── Leave requests ────────────────────────────────────────────
         lr_qs = LeaveRequest.objects.filter(is_deleted=False)
         pending_leave_count = lr_qs.filter(status=LeaveRequestStatus.PENDING).count()
 
+        # Pending leave requests detail (latest 10)
         pending_leaves = lr_qs.filter(
             status=LeaveRequestStatus.PENDING
         ).select_related("employee", "leave_type").order_by("start_date")[:10]
         pending_leave_list = [
             {
-                "id":            str(lr.id),
-                "employee":      lr.employee.full_name,
+                "id":           str(lr.id),
+                "employee":     lr.employee.full_name,
                 "employee_code": lr.employee.employee_code,
-                "leave_type":    lr.leave_type.name,
-                "color":         lr.leave_type.color,
-                "start_date":    str(lr.start_date),
-                "end_date":      str(lr.end_date),
-                "days_count":    float(lr.days_count),
-                "reason":        lr.reason or "",
+                "leave_type":   lr.leave_type.name,
+                "color":        lr.leave_type.color,
+                "start_date":   str(lr.start_date),
+                "end_date":     str(lr.end_date),
+                "days_count":   float(lr.days_count),
+                "reason":       lr.reason or "",
             }
             for lr in pending_leaves
         ]
 
+        # Leave status distribution this month
         leave_this_month = lr_qs.filter(created_at__date__gte=month_start)
         leave_stats = {
             "pending":  leave_this_month.filter(status=LeaveRequestStatus.PENDING).count(),
@@ -888,21 +786,23 @@ class HRMSDashboardView(APIView):
             "rejected": leave_this_month.filter(status=LeaveRequestStatus.REJECTED).count(),
         }
 
+        # ── Recent joiners (last 30 days) ─────────────────────────────
         recent_joiners_qs = emp_qs.filter(
             joining_date__gte=last_30
         ).select_related("designation_ref", "department_ref").order_by("-joining_date")[:8]
         recent_joiners = [
             {
-                "id":            str(e.id),
-                "full_name":     e.full_name,
+                "id":           str(e.id),
+                "full_name":    e.full_name,
                 "employee_code": e.employee_code,
-                "designation":   e.designation_ref.name if e.designation_ref_id else (e.designation or ""),
-                "department":    e.department_ref.name  if e.department_ref_id  else (e.department  or ""),
-                "joining_date":  str(e.joining_date),
+                "designation":  e.designation_ref.name if e.designation_ref_id else (e.designation or ""),
+                "department":   e.department_ref.name  if e.department_ref_id  else (e.department  or ""),
+                "joining_date": str(e.joining_date),
             }
             for e in recent_joiners_qs
         ]
 
+        # ── Payroll — current month ───────────────────────────────────
         payroll_this_month = Payroll.objects.filter(
             month=today.month, year=today.year, is_deleted=False
         )
@@ -923,16 +823,16 @@ class HRMSDashboardView(APIView):
             },
             "attendance_today": {
                 **att_counts,
-                "not_marked":      not_marked_today,
-                "attendance_rate": attendance_rate,
+                "not_marked":       not_marked_today,
+                "attendance_rate":  attendance_rate,
             },
             "leave": {
-                "pending_count":    pending_leave_count,
+                "pending_count":  pending_leave_count,
                 "stats_this_month": leave_stats,
-                "pending_list":     pending_leave_list,
+                "pending_list":   pending_leave_list,
             },
             "recent_joiners": recent_joiners,
-            "payroll":        payroll_stats,
+            "payroll": payroll_stats,
         })
 
 
