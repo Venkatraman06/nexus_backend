@@ -48,3 +48,6 @@ urlpatterns = [
     path("roles/<str:group_id>/",               RoleDetailView.as_view(),            name="role-detail"),
     path("roles/<str:group_id>/permissions/",   RolePermissionsUpdateView.as_view(), name="role-permissions"),
 ] + router.urls
+
+
+

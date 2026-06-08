@@ -12,11 +12,13 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 
 from apps.common.permissions import IsAuthenticated, HasKeycloakPermission
+from apps.accounts import models as account_models
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
 from .models import (
     AttendanceRecord, AttendanceBreak, AttendanceStatus, BreakType,
     LeaveBalance, LeaveRequest, LeaveType, LeaveRequestStatus,
+    AttendanceClockInEnable,
 )
 from .serializers import (
     AttendanceRecordSerializer, CheckInSerializer, CheckOutSerializer,
@@ -31,7 +33,30 @@ BREAK_MAX_MINUTES = {
     "OTHER":  5,
 }
 
-# ── Shift window helper ────────────────────────────────────────────────────────
+# ── Short codes for CSV export ────────────────────────────────────────────────
+STATUS_CODE = {
+    "PRESENT":  "P",
+    "WFH":      "WFH",
+    "HALF_DAY": "HD",
+    "ON_LEAVE": "OL",
+    "HOLIDAY":  "HOL",
+    "WEEKEND":  "—",
+    "ABSENT":   "ABS",
+}
+
+STATUS_COLOR_MAP = {
+    "PRESENT":  "#22c55e",
+    "ABSENT":   "#ef4444",
+    "WFH":      "#3b82f6",
+    "HALF_DAY": "#f59e0b",
+    "ON_LEAVE": "#7c3aed",
+    "HOLIDAY":  "#0d9488",
+    "WEEKEND":  "#d1d5db",
+}
+
+
+# ── Shift window helpers ──────────────────────────────────────────────────────
+
 def _shift_times(employee):
     """Return (start_time, end_time) for the employee's shift, or (None, None)."""
     try:
@@ -49,29 +74,19 @@ def _check_shift_window(now_time, shift_time, before_min: int, after_min: int):
     """
     Returns (ok: bool, message: str).
     Checks whether now_time falls within [shift_time - before_min, shift_time + after_min].
-    Handles midnight crossings gracefully using datetime arithmetic.
     """
     base = dt.datetime(2000, 1, 1)
     window_start = (base + dt.timedelta(
         hours=shift_time.hour, minutes=shift_time.minute
     ) - dt.timedelta(minutes=before_min)).time()
-    window_end   = (base + dt.timedelta(
+    window_end = (base + dt.timedelta(
         hours=shift_time.hour, minutes=shift_time.minute
     ) + dt.timedelta(minutes=after_min)).time()
     ok = window_start <= now_time <= window_end
     return ok, f"{window_start.strftime('%I:%M %p')} – {window_end.strftime('%I:%M %p')}"
 
 
-STATUS_COLOR_MAP = {
-    "PRESENT":  "#22c55e",
-    "ABSENT":   "#ef4444",
-    "WFH":      "#3b82f6",
-    "HALF_DAY": "#f59e0b",
-    "ON_LEAVE": "#7c3aed",
-    "HOLIDAY":  "#0d9488",
-    "WEEKEND":  "#d1d5db",
-}
-
+# ── Self-service views ────────────────────────────────────────────────────────
 
 class TodayAttendanceView(APIView):
     """Get today's attendance record for the current user."""
@@ -101,12 +116,17 @@ class CheckInView(APIView):
         lng      = serializer.validated_data.get("lng")
         me       = request.user
 
-        # ── Shift window check ────────────────────────────────────────────────
-        if getattr(me, "shift_applicable", False):
+        # Allow clock-in if shift_applicable=True OR a shift is assigned
+        has_shift = getattr(me, "shift_applicable", False) or bool(
+            getattr(me, "shift_category_id", None) or
+            (getattr(me, "custom_shift_start", None) and getattr(me, "custom_shift_end", None))
+        )
+
+        if has_shift:
+            # Enforce shift window
             shift_start, _ = _shift_times(me)
             if shift_start:
-                ok, window = _check_shift_window(now_time, shift_start,
-                                                 before_min=5, after_min=5)
+                ok, window = _check_shift_window(now_time, shift_start, before_min=5, after_min=5)
                 if not ok:
                     return Response(
                         {
@@ -118,6 +138,13 @@ class CheckInView(APIView):
                         },
                         status=status.HTTP_400_BAD_REQUEST,
                     )
+        else:
+            # No shift — require HR to have granted clock-in permission for today
+            if not is_clockin_allowed_for_no_shift(me, today):
+                return Response(
+                    {"detail": "You have not been granted clock-in permission for today."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
         record, created = AttendanceRecord.objects.get_or_create(
             employee=request.user, date=today,
@@ -165,12 +192,16 @@ class CheckOutView(APIView):
         if record.check_out:
             return Response({"detail": "Already checked out today."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # ── Shift window check ────────────────────────────────────────────────
-        if getattr(me, "shift_applicable", False):
+        # Allow check-out if shift_applicable=True OR a shift is assigned
+        has_shift = getattr(me, "shift_applicable", False) or bool(
+            getattr(me, "shift_category_id", None) or
+            (getattr(me, "custom_shift_start", None) and getattr(me, "custom_shift_end", None))
+        )
+
+        if has_shift:
             _, shift_end = _shift_times(me)
             if shift_end:
-                ok, window = _check_shift_window(now_time, shift_end,
-                                                 before_min=5, after_min=10)
+                ok, window = _check_shift_window(now_time, shift_end, before_min=5, after_min=10)
                 if not ok:
                     return Response(
                         {
@@ -197,8 +228,6 @@ class CheckOutView(APIView):
         record.save(update_fields=["check_out", "check_out_lat", "check_out_lng", "notes"])
 
         return Response(AttendanceRecordSerializer(record).data)
-
-
 class StartBreakView(APIView):
     """Start a break (Tea / Lunch / Other)."""
     permission_classes = [IsAuthenticated]
@@ -268,15 +297,14 @@ class EndBreakView(APIView):
                         f"(you took {actual_minutes} min). "
                         f"Please get manager approval."
                     ),
-                    "break_type":    active.break_type,
-                    "max_minutes":   max_minutes,
+                    "break_type":     active.break_type,
+                    "max_minutes":    max_minutes,
                     "actual_minutes": actual_minutes,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         # ── Consolidated break check ──────────────────────────────────────────
-        # Sum all completed breaks of the same type today
         completed_same_type = AttendanceBreak.objects.filter(
             attendance=record,
             break_type=active.break_type,
@@ -294,9 +322,9 @@ class EndBreakView(APIView):
                         f"{max_minutes} min (already used {total_prev} min, "
                         f"only {remaining} min remaining)."
                     ),
-                    "break_type":    active.break_type,
-                    "max_minutes":   max_minutes,
-                    "used_minutes":  total_prev,
+                    "break_type":     active.break_type,
+                    "max_minutes":    max_minutes,
+                    "used_minutes":   total_prev,
                     "actual_minutes": actual_minutes,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -315,7 +343,7 @@ class MonthlyAttendanceView(APIView):
     @extend_schema(tags=["attendance"])
     def get(self, request):
         today = date.today()
-        year  = int(request.query_params.get("year", today.year))
+        year  = int(request.query_params.get("year",  today.year))
         month = int(request.query_params.get("month", today.month))
 
         records = AttendanceRecord.objects.filter(
@@ -333,7 +361,7 @@ class MonthlyAttendanceView(APIView):
         return Response({"summary": summary, "records": records_data})
 
 
-# ── Attendance Overview (admin/manager — whole org for a date) ───────────────
+# ── Admin / Manager views ─────────────────────────────────────────────────────
 
 class AttendanceOverviewView(APIView):
     """
@@ -352,20 +380,18 @@ class AttendanceOverviewView(APIView):
         from apps.accounts.models import Employee
         total_employees = Employee.objects.filter(is_active=True, is_deleted=False).count()
 
-        records = AttendanceRecord.objects.filter(date=target_date, is_deleted=False)
-
-        counts = {s: 0 for s in AttendanceStatus.values}
+        records    = AttendanceRecord.objects.filter(date=target_date, is_deleted=False)
+        counts     = {s: 0 for s in AttendanceStatus.values}
         for r in records.values("status"):
             counts[r["status"]] = counts.get(r["status"], 0) + 1
 
-        marked = records.count()
+        marked     = records.count()
         not_marked = max(0, total_employees - marked)
         counts["NOT_MARKED"] = not_marked
 
-        # 7-day trend (present + WFH per day)
         week_trend = []
         for i in range(6, -1, -1):
-            d = target_date - dt.timedelta(days=i)
+            d        = target_date - dt.timedelta(days=i)
             day_recs = AttendanceRecord.objects.filter(date=d, is_deleted=False)
             week_trend.append({
                 "date":    d.strftime("%d %b"),
@@ -383,8 +409,6 @@ class AttendanceOverviewView(APIView):
         })
 
 
-# ── Attendance Tracker (admin/manager) ────────────────────────────────────────
-
 class AttendanceTrackerView(APIView):
     """
     Manager/PMO: full timeline for an employee on a specific date.
@@ -398,8 +422,8 @@ class AttendanceTrackerView(APIView):
         employee_id = request.data.get("employee")
         date_str    = request.data.get("date")
         status_val  = request.data.get("status", AttendanceStatus.PRESENT)
-        check_in    = request.data.get("check_in")   # "HH:MM" or None
-        check_out   = request.data.get("check_out")  # "HH:MM" or None
+        check_in    = request.data.get("check_in")
+        check_out   = request.data.get("check_out")
         notes       = request.data.get("notes", "")
 
         if not employee_id or not date_str:
@@ -443,7 +467,6 @@ class AttendanceTrackerView(APIView):
                 "is_deleted": False,
             },
         )
-
         return Response({"detail": "Attendance saved.", "id": str(record.id)}, status=status.HTTP_200_OK)
 
     @extend_schema(tags=["attendance"])
@@ -468,11 +491,11 @@ class AttendanceTrackerView(APIView):
             return Response({"detail": "Invalid date format. Use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
 
         emp_info = {
-            "id":           str(emp.id),
-            "full_name":    emp.full_name,
+            "id":            str(emp.id),
+            "full_name":     emp.full_name,
             "employee_code": emp.employee_code,
-            "designation":  emp.designation_ref.name if emp.designation_ref_id else (emp.designation or ""),
-            "department":   emp.department_ref.name  if emp.department_ref_id  else (emp.department  or ""),
+            "designation":   emp.designation_ref.name if emp.designation_ref_id else (emp.designation or ""),
+            "department":    emp.department_ref.name  if emp.department_ref_id  else (emp.department  or ""),
         }
 
         record = AttendanceRecord.objects.filter(
@@ -482,15 +505,14 @@ class AttendanceTrackerView(APIView):
         if not record:
             return Response({"employee": emp_info, "date": date_str, "record": None, "events": []})
 
-        # Build ordered timeline events
         events = []
         if record.check_in:
             events.append({
                 "type":  "CHECK_IN",
                 "time":  record.check_in.strftime("%H:%M"),
                 "label": "Started Day",
-                "lat":   float(record.check_in_lat)  if record.check_in_lat  else None,
-                "lng":   float(record.check_in_lng)  if record.check_in_lng  else None,
+                "lat":   float(record.check_in_lat) if record.check_in_lat else None,
+                "lng":   float(record.check_in_lng) if record.check_in_lng else None,
             })
 
         for b in record.breaks.filter(is_deleted=False).order_by("start_time"):
@@ -521,16 +543,16 @@ class AttendanceTrackerView(APIView):
         events.sort(key=lambda e: e["time"])
 
         record_data = {
-            "status":             record.status,
-            "check_in":           record.check_in.strftime("%H:%M")  if record.check_in  else None,
-            "check_out":          record.check_out.strftime("%H:%M") if record.check_out else None,
-            "duration_hours":     record.duration_hours,
-            "working_hours":      record.working_hours,
+            "status":              record.status,
+            "check_in":            record.check_in.strftime("%H:%M")  if record.check_in  else None,
+            "check_out":           record.check_out.strftime("%H:%M") if record.check_out else None,
+            "duration_hours":      record.duration_hours,
+            "working_hours":       record.working_hours,
             "total_break_minutes": record.total_break_minutes,
-            "check_in_lat":       float(record.check_in_lat)  if record.check_in_lat  else None,
-            "check_in_lng":       float(record.check_in_lng)  if record.check_in_lng  else None,
-            "check_out_lat":      float(record.check_out_lat) if record.check_out_lat else None,
-            "check_out_lng":      float(record.check_out_lng) if record.check_out_lng else None,
+            "check_in_lat":        float(record.check_in_lat)  if record.check_in_lat  else None,
+            "check_in_lng":        float(record.check_in_lng)  if record.check_in_lng  else None,
+            "check_out_lat":       float(record.check_out_lat) if record.check_out_lat else None,
+            "check_out_lng":       float(record.check_out_lng) if record.check_out_lng else None,
             "breaks": [
                 {
                     "id":               str(b.id),
@@ -547,40 +569,18 @@ class AttendanceTrackerView(APIView):
         return Response({"employee": emp_info, "date": date_str, "record": record_data, "events": events})
 
 
-# ── Monthly Export (CSV — horizontal pivot: 1 row per employee) ───────────────
-
-# Short codes for each status shown inside date cells
-STATUS_CODE = {
-    "PRESENT":  "P",
-    "WFH":      "WFH",
-    "HALF_DAY": "HD",
-    "ON_LEAVE": "OL",
-    "HOLIDAY":  "HOL",
-    "WEEKEND":  "—",
-    "ABSENT":   "ABS",
-}
-
 class AttendanceExportView(APIView):
     """
-    Export monthly attendance as a HORIZONTAL pivot CSV.
-    One row per employee; one column per calendar day.
-
-    Layout:
-      Employee ID | Full Name | Designation | Department | Emp Code
-      | 01-Fri | 02-Sat | … | 31 |      ← date columns
-      | Present | WFH | HD | On Leave | Absent | Holidays | Working Hrs
-
+    Export monthly attendance as a horizontal pivot CSV.
     GET /attendance/export/?year=2025&month=5
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        today = date.today()
-        year  = int(request.query_params.get("year",  today.year))
-        month = int(request.query_params.get("month", today.month))
-
-        import locale
-        month_name = date(year, month, 1).strftime("%B")   # e.g. "May"
+        today      = date.today()
+        year       = int(request.query_params.get("year",  today.year))
+        month      = int(request.query_params.get("month", today.month))
+        month_name = date(year, month, 1).strftime("%B")
 
         from apps.accounts.models import Employee
         employees = Employee.objects.filter(
@@ -592,7 +592,6 @@ class AttendanceExportView(APIView):
         _, num_days = calendar.monthrange(year, month)
         all_dates   = [date(year, month, d) for d in range(1, num_days + 1)]
 
-        # Pre-fetch all records for the period
         all_records = AttendanceRecord.objects.filter(
             date__year=year, date__month=month, is_deleted=False
         ).select_related("employee").prefetch_related("breaks")
@@ -604,44 +603,27 @@ class AttendanceExportView(APIView):
         output = io.StringIO()
         writer = csv.writer(output)
 
-        # ── Row 1: report title ──────────────────────────────────────
         writer.writerow([f"Attendance Report — {month_name} {year}"])
-        writer.writerow([])   # blank spacer
+        writer.writerow([])
 
-        # ── Row 3: header ────────────────────────────────────────────
-        # Fixed info columns
-        fixed_headers = [
-            "Emp Code", "Full Name", "Designation", "Department",
-        ]
-        # One column per calendar day  →  "01\nFri"  style
-        day_headers = [
-            f"{d.day:02d} {d.strftime('%a')}"   # e.g. "01 Thu"
-            for d in all_dates
-        ]
-        # Summary columns
-        summary_headers = [
-            "Present", "WFH", "Half Day", "On Leave",
-            "Absent", "Holidays", "Working Hrs",
-        ]
+        fixed_headers   = ["Emp Code", "Full Name", "Designation", "Department"]
+        day_headers     = [f"{d.day:02d} {d.strftime('%a')}" for d in all_dates]
+        summary_headers = ["Present", "WFH", "Half Day", "On Leave", "Absent", "Holidays", "Working Hrs"]
         writer.writerow(fixed_headers + day_headers + summary_headers)
 
-        # ── Data rows ─────────────────────────────────────────────────
         for emp in employees:
             desig = emp.designation_ref.name if emp.designation_ref_id else (emp.designation or "")
             dept  = emp.department_ref.name  if emp.department_ref_id  else (emp.department  or "")
 
-            # Counters
             cnt = {k: 0 for k in ("present", "wfh", "half_day", "on_leave", "absent", "holiday")}
             total_working_hrs = 0.0
-
             day_cells = []
+
             for d in all_dates:
                 rec = rec_map.get((str(emp.id), d))
-
                 if rec:
                     stat = rec.status
                     code = STATUS_CODE.get(stat, stat)
-                    # Append check-in time for working days
                     if rec.check_in and stat in ("PRESENT", "WFH", "HALF_DAY"):
                         code = f"{code} {rec.check_in.strftime('%H:%M')}"
                     total_working_hrs += rec.working_hours
@@ -649,30 +631,18 @@ class AttendanceExportView(APIView):
                     stat = "WEEKEND" if d.weekday() >= 5 else "ABSENT"
                     code = STATUS_CODE.get(stat, stat)
 
-                # Tally
                 stat_key = stat.lower()
                 if stat_key in cnt:
                     cnt[stat_key] += 1
-
                 day_cells.append(code)
 
             summary_cells = [
-                cnt["present"],
-                cnt["wfh"],
-                cnt["half_day"],
-                cnt["on_leave"],
-                cnt["absent"],
-                cnt["holiday"],
+                cnt["present"], cnt["wfh"], cnt["half_day"],
+                cnt["on_leave"], cnt["absent"], cnt["holiday"],
                 round(total_working_hrs, 2),
             ]
+            writer.writerow([emp.employee_code, emp.full_name, desig, dept] + day_cells + summary_cells)
 
-            writer.writerow(
-                [emp.employee_code, emp.full_name, desig, dept]
-                + day_cells
-                + summary_cells
-            )
-
-        # ── Legend row ────────────────────────────────────────────────
         writer.writerow([])
         writer.writerow(["Legend:",
             "P=Present", "WFH=Work From Home", "HD=Half Day",
@@ -686,7 +656,104 @@ class AttendanceExportView(APIView):
         return response
 
 
-# ── Leave Types (admin/read) ──────────────────────────────────────────────────
+class AttendanceListView(APIView):
+    """
+    HR/Admin: paginated flat list of attendance records.
+    GET /attendance/list/?date=YYYY-MM-DD
+    GET /attendance/list/?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.accounts.models import Employee
+
+        date_str      = request.query_params.get("date")
+        date_from_str = request.query_params.get("date_from")
+        date_to_str   = request.query_params.get("date_to")
+        today         = date.today()
+
+        if date_str:
+            try:
+                target    = dt.datetime.strptime(date_str, "%Y-%m-%d").date()
+            except ValueError:
+                return Response({"detail": "Invalid date."}, status=status.HTTP_400_BAD_REQUEST)
+            date_from = date_to = target
+        elif date_from_str and date_to_str:
+            try:
+                date_from = dt.datetime.strptime(date_from_str, "%Y-%m-%d").date()
+                date_to   = dt.datetime.strptime(date_to_str,   "%Y-%m-%d").date()
+            except ValueError:
+                return Response({"detail": "Invalid date_from or date_to."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            date_from = date_to = today
+
+        if (date_to - date_from).days > 366:
+            return Response({"detail": "Date range cannot exceed 366 days."}, status=status.HTTP_400_BAD_REQUEST)
+
+        dept_filter = request.query_params.get("department", "").strip()
+
+        emp_qs = Employee.objects.filter(is_active=True, is_deleted=False).select_related(
+            "designation_ref", "department_ref", "shift_category"
+        )
+        if dept_filter:
+            emp_qs = emp_qs.filter(
+                Q(department_ref__name__iexact=dept_filter) |
+                Q(department__iexact=dept_filter)
+            )
+
+        records_qs = AttendanceRecord.objects.filter(
+            date__gte=date_from, date__lte=date_to, is_deleted=False
+        ).select_related("employee")
+
+        rec_map: dict[tuple, AttendanceRecord] = {}
+        for rec in records_qs:
+            rec_map[(str(rec.employee_id), rec.date)] = rec
+
+        rows = []
+        for emp in emp_qs:
+            dept_name  = emp.department_ref.name  if emp.department_ref_id  else (emp.department  or "")
+            desig_name = emp.designation_ref.name if emp.designation_ref_id else (emp.designation or "")
+            shift_name = emp.shift_category.name  if getattr(emp, "shift_category_id", None) else None
+
+            current = date_from
+            while current <= date_to:
+                rec = rec_map.get((str(emp.id), current))
+                if rec:
+                    row_status    = rec.status
+                    check_in_val  = rec.check_in.strftime("%H:%M")  if rec.check_in  else None
+                    check_out_val = rec.check_out.strftime("%H:%M") if rec.check_out else None
+                    working_hrs   = rec.working_hours
+                else:
+                    row_status    = AttendanceStatus.WEEKEND if current.weekday() >= 5 else "NOT_MARKED"
+                    check_in_val  = None
+                    check_out_val = None
+                    working_hrs   = 0.0
+
+                rows.append({
+                    "id":            str(rec.id) if rec else None,
+                    "employee_id":   str(emp.id),
+                    "employee_name": emp.full_name,
+                    "employee_code": emp.employee_code,
+                    "department":    dept_name,
+                    "division":      "",
+                    "date":          current.isoformat(),
+                    "status":        row_status,
+                    "check_in":      check_in_val,
+                    "check_out":     check_out_val,
+                    "working_hours": working_hrs,
+                    "shift_name":    shift_name,
+                })
+                current += dt.timedelta(days=1)
+
+        try:
+            page_size = min(int(request.query_params.get("page_size", 100)), 1000)
+        except ValueError:
+            page_size = 100
+
+        return Response({"count": len(rows), "results": rows[:page_size]})
+
+
+# ── Leave views ───────────────────────────────────────────────────────────────
 
 class LeaveTypeListView(APIView):
     permission_classes = [IsAuthenticated]
@@ -697,21 +764,17 @@ class LeaveTypeListView(APIView):
         return Response(LeaveTypeSerializer(types, many=True).data)
 
 
-# ── Leave Balances ────────────────────────────────────────────────────────────
-
 class MyLeaveBalancesView(APIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(tags=["leave"])
     def get(self, request):
-        year = int(request.query_params.get("year", date.today().year))
+        year     = int(request.query_params.get("year", date.today().year))
         balances = LeaveBalance.objects.filter(
             employee=request.user, year=year
         ).select_related("leave_type")
         return Response(LeaveBalanceSerializer(balances, many=True).data)
 
-
-# ── Leave Requests ────────────────────────────────────────────────────────────
 
 class MyLeaveRequestListView(APIView):
     permission_classes = [IsAuthenticated]
@@ -807,10 +870,7 @@ class LeaveReviewView(APIView):
 
 
 class AdminLeaveRequestListView(APIView):
-    """
-    HR / PMO view — all employees' leave requests with summary stats.
-    GET /leave/admin/requests/?status=PENDING&employee=<id>
-    """
+    """HR / PMO view — all employees' leave requests with summary stats."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -825,7 +885,7 @@ class AdminLeaveRequestListView(APIView):
         if employee_id:
             qs = qs.filter(employee_id=employee_id)
 
-        all_qs = LeaveRequest.objects.filter(is_deleted=False)
+        all_qs  = LeaveRequest.objects.filter(is_deleted=False)
         summary = {
             "pending":       all_qs.filter(status=LeaveRequestStatus.PENDING).count(),
             "approved":      all_qs.filter(status=LeaveRequestStatus.APPROVED).count(),
@@ -858,13 +918,10 @@ class AdminLeaveRequestListView(APIView):
         return Response({"summary": summary, "results": data})
 
 
-# ── Employee Calendar View ─────────────────────────────────────────────────────
-
 class EmployeeCalendarView(APIView):
     """
     GET /attendance/employee-calendar/?employee=<id>&year=YYYY&month=MM
     Returns day-by-day calendar data combining attendance records + leave requests.
-    HR/PMO can view any employee. Employees can only view their own.
     """
     permission_classes = [IsAuthenticated]
 
@@ -875,8 +932,8 @@ class EmployeeCalendarView(APIView):
         month  = int(request.query_params.get("month", today.month))
         emp_id = request.query_params.get("employee")
 
-        is_hr = request.user.is_staff or getattr(request.user, "is_superuser", False)
-        hr_perms = getattr(request, "user_permissions", [])
+        is_hr           = request.user.is_staff or getattr(request.user, "is_superuser", False)
+        hr_perms        = getattr(request, "user_permissions", [])
         can_view_others = is_hr or "pmt.hrms.employee.view" in hr_perms or "pmt.hrms.attendance.view" in hr_perms
 
         if not emp_id:
@@ -893,50 +950,42 @@ class EmployeeCalendarView(APIView):
         _, num_days = calendar.monthrange(year, month)
         all_dates   = [date(year, month, d) for d in range(1, num_days + 1)]
 
-        # Pre-fetch attendance records
-        records_qs = AttendanceRecord.objects.filter(
+        rec_map = {r.date: r for r in AttendanceRecord.objects.filter(
             employee=emp, date__year=year, date__month=month, is_deleted=False
-        )
-        rec_map = {r.date: r for r in records_qs}
+        )}
 
-        # Pre-fetch leave requests that overlap with this month
         month_start = date(year, month, 1)
         month_end   = date(year, month, num_days)
         leaves_qs   = LeaveRequest.objects.filter(
-            employee=emp,
-            is_deleted=False,
-            start_date__lte=month_end,
-            end_date__gte=month_start,
+            employee=emp, is_deleted=False,
+            start_date__lte=month_end, end_date__gte=month_start,
         ).select_related("leave_type").exclude(status=LeaveRequestStatus.REJECTED)
 
-        # Build day → leave map (expand multi-day leaves)
-        leave_map: dict[date, LeaveRequest] = {}
+        leave_map: dict = {}
         for lr in leaves_qs:
             d = lr.start_date
             while d <= lr.end_date:
                 if month_start <= d <= month_end:
-                    # Approved takes priority over Pending
                     if d not in leave_map or lr.status == LeaveRequestStatus.APPROVED:
                         leave_map[d] = lr
                 d += dt.timedelta(days=1)
 
-        days_data = []
+        days_data      = []
         effective_days = 0.0
-        summary = {s: 0 for s in ["present", "absent", "wfh", "half_day", "on_leave", "holiday", "weekend", "pending_leave"]}
+        summary        = {s: 0 for s in ["present", "absent", "wfh", "half_day", "on_leave", "holiday", "weekend", "pending_leave"]}
 
         for d in all_dates:
-            weekday  = d.weekday()          # 0=Mon … 6=Sun
-            is_weekend = weekday >= 5       # Sat=5, Sun=6
-
-            rec   = rec_map.get(d)
-            leave = leave_map.get(d)
+            weekday    = d.weekday()
+            is_weekend = weekday >= 5
+            rec        = rec_map.get(d)
+            leave      = leave_map.get(d)
 
             if rec:
-                att_status      = rec.status
-                check_in        = rec.check_in.strftime("%H:%M") if rec.check_in else None
-                check_out       = rec.check_out.strftime("%H:%M") if rec.check_out else None
-                working_hours   = rec.working_hours
-                notes           = rec.notes
+                att_status    = rec.status
+                check_in      = rec.check_in.strftime("%H:%M")  if rec.check_in  else None
+                check_out     = rec.check_out.strftime("%H:%M") if rec.check_out else None
+                working_hours = rec.working_hours
+                notes         = rec.notes
             else:
                 att_status    = AttendanceStatus.WEEKEND if is_weekend else None
                 check_in      = None
@@ -944,43 +993,28 @@ class EmployeeCalendarView(APIView):
                 working_hours = 0.0
                 notes         = ""
 
-            # Determine effective display status
             if att_status == AttendanceStatus.PRESENT:
-                display_status = "PRESENT"
-                effective_days += 1
-                summary["present"] += 1
+                display_status = "PRESENT";  effective_days += 1;   summary["present"]  += 1
             elif att_status == AttendanceStatus.WFH:
-                display_status = "WFH"
-                effective_days += 1
-                summary["wfh"] += 1
+                display_status = "WFH";      effective_days += 1;   summary["wfh"]      += 1
             elif att_status == AttendanceStatus.HALF_DAY:
-                display_status = "HALF_DAY"
-                effective_days += 0.5
-                summary["half_day"] += 1
+                display_status = "HALF_DAY"; effective_days += 0.5; summary["half_day"] += 1
             elif att_status == AttendanceStatus.ON_LEAVE:
-                display_status = "ON_LEAVE"
-                summary["on_leave"] += 1
+                display_status = "ON_LEAVE";                         summary["on_leave"] += 1
             elif att_status == AttendanceStatus.HOLIDAY:
-                display_status = "HOLIDAY"
-                summary["holiday"] += 1
+                display_status = "HOLIDAY";                          summary["holiday"]  += 1
             elif att_status == AttendanceStatus.WEEKEND:
-                display_status = "WEEKEND"
-                summary["weekend"] += 1
+                display_status = "WEEKEND";                          summary["weekend"]  += 1
             elif att_status == AttendanceStatus.ABSENT:
-                display_status = "ABSENT"
-                summary["absent"] += 1
+                display_status = "ABSENT";                           summary["absent"]   += 1
             else:
-                # No attendance record
                 if is_weekend:
-                    display_status = "WEEKEND"
-                    summary["weekend"] += 1
+                    display_status = "WEEKEND"; summary["weekend"] += 1
                 elif leave:
                     if leave.status == LeaveRequestStatus.PENDING:
-                        display_status = "PENDING_LEAVE"
-                        summary["pending_leave"] += 1
+                        display_status = "PENDING_LEAVE"; summary["pending_leave"] += 1
                     else:
-                        display_status = "ON_LEAVE"
-                        summary["on_leave"] += 1
+                        display_status = "ON_LEAVE"; summary["on_leave"] += 1
                 elif d > today:
                     display_status = "FUTURE"
                 else:
@@ -998,19 +1032,19 @@ class EmployeeCalendarView(APIView):
                 }
 
             days_data.append({
-                "date":          d.isoformat(),
-                "day":           d.day,
-                "weekday":       weekday,         # 0=Mon … 6=Sun
-                "is_weekend":    is_weekend,
-                "is_today":      d == today,
-                "is_future":     d > today,
+                "date":           d.isoformat(),
+                "day":            d.day,
+                "weekday":        weekday,
+                "is_weekend":     is_weekend,
+                "is_today":       d == today,
+                "is_future":      d > today,
                 "display_status": display_status,
-                "att_status":    att_status,
-                "check_in":      check_in,
-                "check_out":     check_out,
-                "working_hours": working_hours,
-                "notes":         notes,
-                "leave":         leave_info,
+                "att_status":     att_status,
+                "check_in":       check_in,
+                "check_out":      check_out,
+                "working_hours":  working_hours,
+                "notes":          notes,
+                "leave":          leave_info,
             })
 
         return Response({
@@ -1022,3 +1056,91 @@ class EmployeeCalendarView(APIView):
             "summary":        summary,
             "days":           days_data,
         })
+
+
+# ── Clock-in enable (HR grants permission to no-shift employees) ──────────────
+
+class AttendanceClockInEnableView(APIView):
+    """
+    GET  /attendance/enable-clockin/?date=YYYY-MM-DD
+    POST /attendance/enable-clockin/  { employee, date, enabled }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        date_str = request.query_params.get("date", str(date.today()))
+        try:
+            target_date = dt.datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return Response({"detail": "Invalid date."}, status=status.HTTP_400_BAD_REQUEST)
+
+        entries = AttendanceClockInEnable.objects.filter(
+            date=target_date, is_deleted=False
+        ).select_related("employee", "enabled_by")
+
+        results = []
+        for e in entries:
+            emp  = e.employee
+            dept = emp.department_ref.name if getattr(emp, "department_ref_id", None) else (emp.department or "")
+            results.append({
+                "id":            str(e.id),
+                "employee_id":   str(emp.id),
+                "employee_name": emp.full_name,
+                "employee_code": emp.employee_code,
+                "department":    dept,
+                "date":          e.date.isoformat(),
+                "enabled":       e.enabled,
+                "enabled_by":    e.enabled_by.full_name if e.enabled_by_id else None,
+            })
+
+        return Response({"count": len(results), "results": results})
+
+    def post(self, request):
+        from apps.accounts.models import Employee
+
+        employee_id = request.data.get("employee")
+        date_str    = request.data.get("date")
+        enabled     = request.data.get("enabled", True)
+
+        if not employee_id or not date_str:
+            return Response({"detail": "employee and date are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            emp = Employee.objects.get(id=employee_id, is_deleted=False)
+        except Employee.DoesNotExist:
+            return Response({"detail": "Employee not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            target_date = dt.datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return Response({"detail": "Invalid date. Use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+
+        entry, created = AttendanceClockInEnable.objects.update_or_create(
+            employee=emp,
+            date=target_date,
+            defaults={"enabled": bool(enabled), "enabled_by": request.user, "is_deleted": False},
+        )
+
+        dept = emp.department_ref.name if getattr(emp, "department_ref_id", None) else (emp.department or "")
+
+        return Response(
+            {
+                "id":            str(entry.id),
+                "employee_id":   str(emp.id),
+                "employee_name": emp.full_name,
+                "employee_code": emp.employee_code,
+                "department":    dept,
+                "date":          entry.date.isoformat(),
+                "enabled":       entry.enabled,
+                "enabled_by":    request.user.full_name,
+                "created":       created,
+            },
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+def is_clockin_allowed_for_no_shift(employee, target_date: date) -> bool:
+    """Returns True if a no-shift employee has been granted clock-in permission for the given date."""
+    return AttendanceClockInEnable.objects.filter(
+        employee=employee, date=target_date, enabled=True, is_deleted=False,
+    ).exists()

@@ -10,7 +10,8 @@ class EmployeeAdmin(admin.ModelAdmin):
     list_filter = ["status", "is_pmo", "is_manager", "is_staff", "department"]
     search_fields = ["username", "email", "first_name", "last_name", "employee_code"]
     ordering = ["first_name", "last_name"]
-    readonly_fields = ["keycloak_id", "last_login"]
+    # readonly_fields = ["keycloak_id", "last_login"]
+    readonly_fields = ["last_login"]
 
     filter_horizontal = ("groups", "user_permissions")
     fieldsets = (
