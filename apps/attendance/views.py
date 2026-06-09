@@ -857,17 +857,18 @@ class LeaveReviewView(APIView):
         leave.save(update_fields=["status", "reviewer", "reviewer_remarks"])
 
         if leave.status == LeaveRequestStatus.APPROVED:
-            balance, _ = LeaveBalance.objects.get_or_create(
-                employee=leave.employee,
-                leave_type=leave.leave_type,
-                year=leave.start_date.year,
-                defaults={"total_days": leave.leave_type.max_days, "used_days": 0},
-            )
-            balance.used_days = float(balance.used_days) + float(leave.days_count)
-            balance.save(update_fields=["used_days"])
+            # ── Skip balance deduction if exempt (emergency leave with medical certificate) ──
+            if not getattr(leave, "exempt_from_balance", False):
+                balance, _ = LeaveBalance.objects.get_or_create(
+                    employee=leave.employee,
+                    leave_type=leave.leave_type,
+                    year=leave.start_date.year,
+                    defaults={"total_days": leave.leave_type.max_days, "used_days": 0},
+                )
+                balance.used_days = float(balance.used_days) + float(leave.days_count)
+                balance.save(update_fields=["used_days"])
 
         return Response(LeaveRequestSerializer(leave).data)
-
 
 class AdminLeaveRequestListView(APIView):
     """HR / PMO view — all employees' leave requests with summary stats."""
