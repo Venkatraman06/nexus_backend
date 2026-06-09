@@ -5,6 +5,7 @@ Seed the PMT workflow configurations:
   3. Ticket / work     : Todo → In Progress → Resolved → Done
 
 Note: WorkItem was removed; tickets use the ticket workflow directly (WorkLog has no workflow).
+  4. Follow-up / todo : Planning → In Progress → Completed / Cancelled
 """
 from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
@@ -57,6 +58,22 @@ TICKET_TRANSITIONS = [
     ("done",       "inprogress", "Reopen",        ["PMO Team", "Project Managers"], {"source": {"x": 650, "y": 200}, "destination": {"x": 250, "y": 200}}),
 ]
 
+FOLLOWUP_STATES = [
+    {"name": "Planning",    "slug": "planning",   "color_code": "#14B8A6", "order": 1, "is_initial": True,  "is_final": False},
+    {"name": "In Progress", "slug": "inprogress", "color_code": "#3B82F6", "order": 2, "is_initial": False, "is_final": False},
+    {"name": "Completed",   "slug": "completed",  "color_code": "#10B981", "order": 3, "is_initial": False, "is_final": True},
+    {"name": "Cancelled",   "slug": "cancelled",  "color_code": "#EF4444", "order": 4, "is_initial": False, "is_final": True},
+]
+
+FOLLOWUP_TRANSITIONS = [
+    ("planning",   "inprogress", "Start",       [], {"source": {"x": 50,  "y": 100}, "destination": {"x": 250, "y": 100}}),
+    ("planning",   "completed",  "Mark Done",   [], {"source": {"x": 50,  "y": 200}, "destination": {"x": 450, "y": 100}}),
+    ("inprogress", "completed",  "Mark Done",   [], {"source": {"x": 250, "y": 100}, "destination": {"x": 450, "y": 100}}),
+    ("inprogress", "planning",   "Back",        [], {"source": {"x": 250, "y": 200}, "destination": {"x": 50,  "y": 200}}),
+    ("completed",  "cancelled",  "Cancel",      [], {"source": {"x": 450, "y": 200}, "destination": {"x": 650, "y": 200}}),
+    ("cancelled",  "planning",   "Reopen",      [], {"source": {"x": 650, "y": 100}, "destination": {"x": 50,  "y": 300}}),
+]
+
 
 class Command(BaseCommand):
     help = "Seed workflow groups, states and transitions for Project and Ticket"
@@ -70,6 +87,10 @@ class Command(BaseCommand):
         self._seed_workflow(
             "tickets", "ticket",
             TICKET_STATES, TICKET_TRANSITIONS, groups_map,
+        )
+        self._seed_workflow(
+            "followups", "followup",
+            FOLLOWUP_STATES, FOLLOWUP_TRANSITIONS, groups_map,
         )
         self.stdout.write(self.style.SUCCESS("\nWorkflow seeding complete."))
 

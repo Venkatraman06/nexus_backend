@@ -389,6 +389,53 @@ class EmployeeDashboardView(APIView):
             for t in recent_items
         ]
 
+        # ── Pending follow-ups (assigned to me) ───────────────────────
+        pending_followups_data = []
+        user_perms = getattr(request, "user_permissions", [])
+        if "pmt.crm.followup.view" in user_perms or request.user.is_superuser:
+            from apps.followups.models import FollowUp
+            from django.db.models import Case, When, IntegerField, Value, Q
+
+            priority_order = Case(
+                When(priority="IMPORTANT", then=Value(0)),
+                When(priority="HIGH", then=Value(1)),
+                When(priority="MEDIUM", then=Value(2)),
+                When(priority="LOW", then=Value(3)),
+                default=Value(4),
+                output_field=IntegerField(),
+            )
+            visible = Q(assignee_id=me.pk) | Q(reporter_id=me.pk)
+            pending_base = FollowUp.objects.filter(
+                is_deleted=False,
+                workflow_state__is_final=False,
+            )
+            if "pmt.crm.followup.view_all" in user_perms:
+                pending_qs = pending_base
+            else:
+                pending_qs = pending_base.filter(visible)
+            pending_qs = pending_qs.select_related("workflow_state").annotate(
+                priority_rank=priority_order,
+            ).order_by("priority_rank", "due_date", "start_time")[:10]
+            pending_followups_data = [
+                {
+                    "id":                  str(f.id),
+                    "title":               f.title,
+                    "type":                f.type,
+                    "type_label":          f.get_type_display(),
+                    "priority":            f.priority,
+                    "priority_label":      f.get_priority_display(),
+                    "description":         f.description,
+                    "due_date":            str(f.due_date) if f.due_date else None,
+                    "start_time":          f.start_time.strftime("%H:%M") if f.start_time else None,
+                    "end_time":            f.end_time.strftime("%H:%M") if f.end_time else None,
+                    "is_overdue":          bool(f.due_date and f.due_date < today),
+                    "assignee_name":       f.assignee.full_name if f.assignee else "",
+                    "workflow_state_slug": f.workflow_state.slug if f.workflow_state else "",
+                    "workflow_state_name": f.workflow_state.name if f.workflow_state else "",
+                }
+                for f in pending_qs
+            ]
+
         # ── My active project allocations ─────────────────────────────
         allocations = Allocation.objects.filter(
             employee=me, is_deleted=False,
@@ -429,10 +476,13 @@ class EmployeeDashboardView(APIView):
             d["log_date"] = str(d["log_date"])
             d["hours"] = float(d["hours"])
 
-        # ── Recent work logs ──────────────────────────────────────────
+        # ── Recent work logs (current calendar week only) ─────────────
+        week_start, week_end = week_bounds(today)
         recent_logs = WorkLog.objects.filter(
-            employee=me, is_deleted=False
-        ).select_related("ticket__project").order_by("-log_date")[:10]
+            employee=me,
+            is_deleted=False,
+            log_date__range=[week_start, week_end],
+        ).select_related("ticket__project").order_by("-log_date")
         recent_logs_data = [
             {
                 "id":         str(wl.id),
@@ -655,6 +705,7 @@ class EmployeeDashboardView(APIView):
             "profile":      profile,
             "work_items":   work_items,
             "recent_items": recent_items_data,
+            "pending_followups": pending_followups_data,
             "my_projects":  my_projects,
             "timesheet": {
                 "weekly_hours":    weekly_hours,

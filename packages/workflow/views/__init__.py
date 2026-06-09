@@ -44,8 +44,9 @@ class WorkflowStateViewSet(ModelViewSet):
         model     = self.request.query_params.get("model")
         if app_label and model:
             ct = _resolve_content_type(app_label, model)
-            if ct:
-                qs = qs.filter(content_type=ct)
+            if not ct:
+                return qs.none()
+            qs = qs.filter(content_type=ct)
         return qs.order_by("order")
 
     @action(detail=False, methods=["get"], url_path="content-type-id")
@@ -80,8 +81,9 @@ class WorkflowTransitionViewSet(ModelViewSet):
         model = self.request.query_params.get("model")
         if app_label and model:
             ct = _resolve_content_type(app_label, model)
-            if ct:
-                qs = qs.filter(content_type=ct)
+            if not ct:
+                return qs.none()
+            qs = qs.filter(content_type=ct)
         return qs
 
     @action(detail=False, methods=["post"], url_path="bulk-save")

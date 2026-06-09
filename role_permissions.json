@@ -67,6 +67,12 @@
     "pmt.crm.expense.view",
     "pmt.crm.expense.create",
     "pmt.crm.expense.approve",
+    "pmt.crm.followup.view",
+    "pmt.crm.followup.view_all",
+    "pmt.crm.followup.create",
+    "pmt.crm.followup.update",
+    "pmt.crm.followup.delete",
+    "pmt.crm.followup.transition",
     "pmt.role.view"
   ],
   "Employee": [
@@ -83,6 +89,10 @@
     "pmt.project.allocation.view",
     "pmt.hrms.attendance.view",
     "pmt.hrms.leave.view",
-    "pmt.policy.view"
+    "pmt.policy.view",
+    "pmt.crm.followup.view",
+    "pmt.crm.followup.create",
+    "pmt.crm.followup.update",
+    "pmt.crm.followup.transition"
   ]
 }

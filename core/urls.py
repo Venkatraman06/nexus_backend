@@ -26,6 +26,7 @@ urlpatterns = [
     path(f"{URL_PREFIX}/api/v1/", include("apps.payment.urls")),
     path(f"{URL_PREFIX}/api/v1/", include("apps.finance.urls")),
     path(f"{URL_PREFIX}/api/v1/", include("apps.expenses.urls")),
+    path(f"{URL_PREFIX}/api/v1/", include("apps.followups.urls")),
     path(f"{URL_PREFIX}/api/v1/", include("apps.notifications.urls")),
 ]
 

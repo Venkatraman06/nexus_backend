@@ -43,6 +43,7 @@ PROJECT_APPS = [
     "apps.integrations",
     "apps.finance",
     "apps.expenses",
+    "apps.followups",
     "packages.workflow",
 ]
 

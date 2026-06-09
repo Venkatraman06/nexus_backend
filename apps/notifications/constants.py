@@ -29,6 +29,7 @@ class ReferenceType(models.TextChoices):
     INVOICE = "invoice", "Invoice"
     MILESTONE = "milestone", "Milestone"
     PAYMENT = "payment", "Payment"
+    FOLLOWUP = "followup", "Follow-up"
 
 
 class EventType(models.TextChoices):
@@ -46,6 +47,8 @@ class EventType(models.TextChoices):
     INVOICE_DUE_REMINDER = "invoice.due_reminder", "Invoice Due Reminder"
     MILESTONE_DUE_REMINDER = "milestone.due_reminder", "Milestone Due Reminder"
     PAYMENT_OVERDUE = "payment.overdue", "Payment Overdue"
+    FOLLOWUP_DUE_TODAY = "followup.due_today", "Follow-up Due Today"
+    FOLLOWUP_OVERDUE = "followup.overdue", "Follow-up Overdue"
 
 
 # Channels enabled today — extend without changing call sites.

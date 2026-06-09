@@ -101,6 +101,20 @@ DEFAULT_TEMPLATES = [
         "severity": NotificationSeverity.URGENT,
         "default_action_url": "/payment/invoices/{reference_id}",
     },
+    {
+        "event_type": EventType.FOLLOWUP_DUE_TODAY,
+        "title_template": "Follow-up today: {type_label}",
+        "message_template": "\"{title}\" ({type_label}) is scheduled for today{time_suffix}.",
+        "severity": NotificationSeverity.WARNING,
+        "default_action_url": "/followups?view=calendar",
+    },
+    {
+        "event_type": EventType.FOLLOWUP_OVERDUE,
+        "title_template": "Follow-up overdue: {type_label}",
+        "message_template": "\"{title}\" ({type_label}) is {days_overdue} day(s) overdue (due {due_date}). Please complete or reschedule.",
+        "severity": NotificationSeverity.URGENT,
+        "default_action_url": "/followups",
+    },
 ]
 
 

@@ -4,6 +4,16 @@ from django.db import transaction
 from packages.workflow.models import Proceeding, State, Transition
 from packages.workflow.exceptions import WorkflowTransitionError
 
+# Models where transition group rules are skipped — permission is enforced at the API layer.
+_GROUP_CHECK_BYPASS = {
+    ("followups", "followup"),
+}
+
+
+def _bypasses_group_check(workflow_object) -> bool:
+    ct = ContentType.objects.get_for_model(workflow_object)
+    return (ct.app_label, ct.model) in _GROUP_CHECK_BYPASS
+
 
 class TransitionService:
     @staticmethod
@@ -23,6 +33,9 @@ class TransitionService:
         )
 
         if user is None:
+            return list(qs)
+
+        if _bypasses_group_check(workflow_object):
             return list(qs)
 
         if getattr(user, "is_staff", False) or getattr(user, "is_superuser", False):

@@ -1,6 +1,7 @@
 """
 Seed linked PMO demo data: Hackers Infotech billing & internal projects,
-allocations, tickets, work logs, timesheets, leaves, and intern payroll.
+allocations, tickets, work logs, timesheets, leaves, intern payroll, and
+follow-up calendar demos.
 
 Requires: seed_workflow, migrate_seed_data, seed_crm_finance (for billing clients).
 
@@ -86,6 +87,7 @@ class Command(BaseCommand):
             self._approve_timesheets(dry, emp)
             self._seed_leaves(dry, emp)
             self._seed_payroll(dry, emp)
+            self._seed_followups(dry, emp)
 
             if dry:
                 transaction.set_rollback(True)
@@ -112,6 +114,10 @@ class Command(BaseCommand):
         Ticket.objects.filter(project__in=projects).delete()
         Allocation.objects.filter(project__in=projects).delete()
         projects.filter(code__in=internal_codes + pipeline_codes).delete()
+
+        from apps.followups.models import FollowUp
+        FollowUp.objects.filter(title__startswith=f"[{SEED_PREFIX}]").delete()
+
         self._log("  Reset: removed seeded PMO projects and related data")
 
     def _load_employees(self, dry):
@@ -615,5 +621,248 @@ class Command(BaseCommand):
 
         self._log(f"  Work logs: {logs_created} created | Weekly sheets: {sheets_created} created")
 
+    def _seed_followups(self, dry, emp):
+        from apps.followups.models import FollowUp
+        from apps.followups.workflow import ensure_followup_workflow
+
+        specs = build_followup_demo_specs()
+        if dry:
+            self._log(f"  Follow-ups: {len(specs)} demo records (dry-run)")
+            return
+
+        ensure_followup_workflow()
+        followup_ct = ContentType.objects.get(app_label="followups", model="followup")
+
+        created = updated = skipped = 0
+        for cfg in specs:
+            assignee = emp.get(cfg["assignee"])
+            reporter = emp.get(cfg.get("reporter", cfg["assignee"]))
+            if not assignee or not reporter:
+                skipped += 1
+                continue
+
+            wf = self._state(followup_ct, cfg.get("workflow_slug", "planning"))
+            defaults = {
+                "type": cfg["type"],
+                "priority": cfg["priority"],
+                "description": cfg.get("description", ""),
+                "comments": cfg.get("comments", SEED_PREFIX),
+                "assignee": assignee,
+                "reporter": reporter,
+                "due_date": cfg["due_date"],
+                "start_time": cfg.get("start_time"),
+                "end_time": cfg.get("end_time"),
+                "workflow_state": wf,
+                "created_by": reporter,
+                "updated_by": reporter,
+            }
+            obj, c = FollowUp.objects.update_or_create(
+                title=cfg["title"],
+                defaults=defaults,
+            )
+            if c:
+                created += 1
+            else:
+                updated += 1
+
+        self._log(
+            f"  Follow-ups: {created} created, {updated} updated, {skipped} skipped "
+            f"(Chandraprakash, Karthick, Dharshika, Madhan)"
+        )
+
 
 WORK_LOGS = ERP_WORK_LOGS + TRAINING_WORK_LOGS + OTHER_WORK_LOGS
+
+# ── Follow-up calendar demo (Chandraprakash, Karthick, Dharshika, Madhan) ───
+
+FOLLOWUP_DEMO_USERS = ("HIT-001", "HIT-002", "HIT-009", "HIT-008")
+
+FOLLOWUP_TOPICS = [
+    ("Powerloop ERP sprint review", "MEETING", "IMPORTANT"),
+    ("SSB IMS handover call", "CALL", "HIGH"),
+    ("KPR Arts cyber security training prep", "MEETING", "IMPORTANT"),
+    ("Nexus tool architecture walkthrough", "MEETING", "HIGH"),
+    ("Client invoice follow-up — Powerloop", "EMAIL", "HIGH"),
+    ("Weekly PMO stand-up", "MEETING", "MEDIUM"),
+    ("ERP UAT defect triage", "CALL", "HIGH"),
+    ("Intern progress check-in", "CALL", "MEDIUM"),
+    ("Full-stack code review session", "MEETING", "MEDIUM"),
+    ("Security lab exercise debrief", "WHATSAPP", "LOW"),
+    ("Site visit — Powerloop plant floor", "SITE_VISIT", "IMPORTANT"),
+    ("YMA pipeline discovery call", "CALL", "MEDIUM"),
+    ("Training deck review", "EMAIL", "MEDIUM"),
+    ("Sprint planning — inventory module", "MEETING", "HIGH"),
+    ("Stakeholder demo rehearsal", "MEETING", "IMPORTANT"),
+    ("WhatsApp client status update", "WHATSAPP", "LOW"),
+    ("QA sign-off discussion", "CALL", "MEDIUM"),
+    ("Timesheet approval reminder", "EMAIL", "LOW"),
+    ("Cyber lab setup verification", "SITE_VISIT", "MEDIUM"),
+    ("API integration checkpoint", "MEETING", "HIGH"),
+    ("Budget review with management", "MEETING", "IMPORTANT"),
+    ("Intern onboarding follow-up", "CALL", "MEDIUM"),
+    ("Release notes review", "EMAIL", "LOW"),
+    ("Post-training feedback call", "CALL", "MEDIUM"),
+    ("New UI mockup review", "MEETING", "HIGH"),
+    ("Database migration dry run", "MEETING", "HIGH"),
+    ("Client escalation — priority bug", "CALL", "IMPORTANT"),
+    ("Vendor payment confirmation", "EMAIL", "MEDIUM"),
+    ("Team retrospective", "MEETING", "MEDIUM"),
+    ("OWASP training recap", "MEETING", "MEDIUM"),
+]
+
+FOLLOWUP_TIME_SLOTS = [
+    None,
+    (9, 0, 10, 0),
+    (10, 30, 11, 30),
+    (11, 0, 12, 0),
+    (14, 0, 15, 0),
+    (15, 30, 16, 30),
+    (16, 0, 17, 0),
+    (17, 30, 18, 30),
+]
+
+FOLLOWUP_WORKFLOW_ROTATION = (
+    "planning", "planning", "inprogress", "inprogress", "completed", "planning",
+)
+
+
+def build_followup_demo_specs() -> list[dict]:
+    """Build ~90 follow-ups spread across May–Aug 2026 for calendar demos."""
+    specs: list[dict] = []
+    start = datetime.date(2026, 5, 20)
+    end = datetime.date(2026, 8, 15)
+    day = start
+    topic_idx = 0
+    user_idx = 0
+    slot_idx = 0
+    state_idx = 0
+    seq = 1
+
+    reporters = {
+        "HIT-001": "HIT-002",
+        "HIT-002": "HIT-001",
+        "HIT-008": "HIT-003",
+        "HIT-009": "HIT-005",
+    }
+
+    while day <= end:
+        for _ in range(2):
+            assignee = FOLLOWUP_DEMO_USERS[user_idx % len(FOLLOWUP_DEMO_USERS)]
+            user_idx += 1
+            topic, ftype, priority = FOLLOWUP_TOPICS[topic_idx % len(FOLLOWUP_TOPICS)]
+            topic_idx += 1
+            slot = FOLLOWUP_TIME_SLOTS[slot_idx % len(FOLLOWUP_TIME_SLOTS)]
+            slot_idx += 1
+            state = FOLLOWUP_WORKFLOW_ROTATION[state_idx % len(FOLLOWUP_WORKFLOW_ROTATION)]
+            state_idx += 1
+
+            reporter = reporters.get(assignee, "HIT-002")
+            if assignee == "HIT-001":
+                reporter = "HIT-002" if seq % 2 else "HIT-009"
+            elif assignee == "HIT-002":
+                reporter = "HIT-001" if seq % 2 else "HIT-008"
+
+            cfg = {
+                "title": f"[{SEED_PREFIX}] {topic} #{seq:03d}",
+                "type": ftype,
+                "priority": priority,
+                "description": (
+                    f"Demo follow-up for calendar testing — {topic.lower()} "
+                    f"scheduled on {day.isoformat()}."
+                ),
+                "comments": SEED_PREFIX,
+                "assignee": assignee,
+                "reporter": reporter,
+                "due_date": day,
+                "workflow_slug": state,
+            }
+            if slot:
+                cfg["start_time"] = datetime.time(slot[0], slot[1])
+                cfg["end_time"] = datetime.time(slot[2], slot[3])
+            specs.append(cfg)
+            seq += 1
+
+        day += datetime.timedelta(days=1)
+
+    extras = [
+        {
+            "title": f"[{SEED_PREFIX}] New UI design review",
+            "type": "MEETING",
+            "priority": "IMPORTANT",
+            "description": "Review pending follow-up UI and calendar layout with Dharshika.",
+            "assignee": "HIT-009",
+            "reporter": "HIT-002",
+            "due_date": datetime.date(2026, 6, 11),
+            "start_time": datetime.time(10, 0),
+            "end_time": datetime.time(11, 0),
+            "workflow_slug": "planning",
+        },
+        {
+            "title": f"[{SEED_PREFIX}] Meet Karthick — scope alignment",
+            "type": "MEETING",
+            "priority": "HIGH",
+            "description": "Timed calendar block for week view demo.",
+            "assignee": "HIT-002",
+            "reporter": "HIT-001",
+            "due_date": datetime.date(2026, 6, 10),
+            "start_time": datetime.time(13, 30),
+            "end_time": datetime.time(14, 30),
+            "workflow_slug": "inprogress",
+        },
+        {
+            "title": f"[{SEED_PREFIX}] KPR Arts Cyber Security Training — Day 1",
+            "type": "MEETING",
+            "priority": "IMPORTANT",
+            "description": "Multi-day training block — all-day entries on calendar.",
+            "assignee": "HIT-001",
+            "reporter": "HIT-002",
+            "due_date": datetime.date(2026, 6, 7),
+            "workflow_slug": "inprogress",
+        },
+        {
+            "title": f"[{SEED_PREFIX}] KPR Arts Cyber Security Training — Day 2",
+            "type": "MEETING",
+            "priority": "IMPORTANT",
+            "description": "Multi-day training block — day 2.",
+            "assignee": "HIT-001",
+            "reporter": "HIT-002",
+            "due_date": datetime.date(2026, 6, 8),
+            "workflow_slug": "inprogress",
+        },
+        {
+            "title": f"[{SEED_PREFIX}] KPR Arts Cyber Security Training — Day 3",
+            "type": "MEETING",
+            "priority": "IMPORTANT",
+            "description": "Multi-day training block — day 3.",
+            "assignee": "HIT-001",
+            "reporter": "HIT-002",
+            "due_date": datetime.date(2026, 6, 9),
+            "workflow_slug": "inprogress",
+        },
+        {
+            "title": f"[{SEED_PREFIX}] Madhan — security lab report",
+            "type": "CALL",
+            "priority": "MEDIUM",
+            "description": "Intern deliverable follow-up.",
+            "assignee": "HIT-008",
+            "reporter": "HIT-003",
+            "due_date": datetime.date(2026, 6, 12),
+            "start_time": datetime.time(9, 30),
+            "end_time": datetime.time(10, 0),
+            "workflow_slug": "planning",
+        },
+        {
+            "title": f"[{SEED_PREFIX}] Chandraprakash — board review",
+            "type": "MEETING",
+            "priority": "IMPORTANT",
+            "description": "Executive review of Q2 delivery.",
+            "assignee": "HIT-001",
+            "reporter": "HIT-002",
+            "due_date": datetime.date(2026, 6, 15),
+            "start_time": datetime.time(11, 0),
+            "end_time": datetime.time(12, 30),
+            "workflow_slug": "planning",
+        },
+    ]
+    specs.extend(extras)
+    return specs

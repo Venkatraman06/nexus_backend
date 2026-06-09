@@ -111,5 +111,12 @@
   {"name": "pmt.crm.expense.create",  "description": "Create company expense records",  "category": "CRM & Finance"},
   {"name": "pmt.crm.expense.update",  "description": "Update company expense records",  "category": "CRM & Finance"},
   {"name": "pmt.crm.expense.delete",  "description": "Delete company expense records",  "category": "CRM & Finance"},
-  {"name": "pmt.crm.expense.approve", "description": "Approve or reject expenses",      "category": "CRM & Finance"}
+  {"name": "pmt.crm.expense.approve", "description": "Approve or reject expenses",      "category": "CRM & Finance"},
+
+  {"name": "pmt.crm.followup.view",       "description": "View follow-ups where you are assignee or creator", "category": "CRM & Finance"},
+  {"name": "pmt.crm.followup.view_all",   "description": "View all follow-ups",                    "category": "CRM & Finance"},
+  {"name": "pmt.crm.followup.create",     "description": "Create follow-up records",               "category": "CRM & Finance"},
+  {"name": "pmt.crm.followup.update",     "description": "Update follow-up records",               "category": "CRM & Finance"},
+  {"name": "pmt.crm.followup.delete",     "description": "Delete follow-up records",               "category": "CRM & Finance"},
+  {"name": "pmt.crm.followup.transition", "description": "Transition follow-up workflow states",   "category": "CRM & Finance"}
 ]

@@ -30,7 +30,10 @@ def scan_due_date_reminders() -> dict:
 
     today = date.today()
     tomorrow = today + timedelta(days=1)
-    counts = {"tickets": 0, "projects": 0, "invoices": 0, "milestones": 0, "payments": 0}
+    counts = {
+        "tickets": 0, "projects": 0, "invoices": 0, "milestones": 0, "payments": 0,
+        "followups_today": 0, "followups_overdue": 0,
+    }
 
     # ── Tickets due today ─────────────────────────────────────────────
     from apps.tickets.models import Ticket
@@ -130,6 +133,13 @@ def scan_due_date_reminders() -> dict:
             dedup_key=f"payment.overdue:{inv.id}:{today.isoformat()}",
         )
         counts["payments"] += 1
+
+    # ── Follow-ups (planning/inprogress, assignee only) ───────────────
+    from apps.followups.notifications import scan_followup_reminders
+
+    followup_counts = scan_followup_reminders(today=today)
+    counts["followups_today"] = followup_counts["followups_today"]
+    counts["followups_overdue"] = followup_counts["followups_overdue"]
 
     logger.info("Due-date scan complete: %s", counts)
     return counts

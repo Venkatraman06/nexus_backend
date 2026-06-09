@@ -107,6 +107,9 @@ class TransitionSerializer(serializers.ModelSerializer):
             instance.groups.set(self._resolve_groups(kc_names))
         elif groups is not None:
             instance.groups.set(groups)
+        # Clear cached M2M so group_names reflects the latest mapping in the response
+        if hasattr(instance, "_prefetched_objects_cache"):
+            instance._prefetched_objects_cache.pop("groups", None)
         return instance
 
 

@@ -138,6 +138,10 @@ class NotificationEngine:
         if et in ("invoice.due_reminder", "milestone.due_reminder", "payment.overdue"):
             return list(finance_employees())
 
+        if et in ("followup.due_today", "followup.overdue"):
+            aid = payload.get("assignee_id")
+            return list(Employee.objects.filter(id=aid, is_active=True, is_deleted=False)) if aid else []
+
         return []
 
     @classmethod
