@@ -394,7 +394,7 @@ class EmployeeDashboardView(APIView):
         user_perms = getattr(request, "user_permissions", [])
         if "pmt.crm.followup.view" in user_perms or request.user.is_superuser:
             from apps.followups.models import FollowUp
-            from django.db.models import Case, When, IntegerField, Value, Q
+            from django.db.models import Case, When, IntegerField, Value
 
             priority_order = Case(
                 When(priority="IMPORTANT", then=Value(0)),

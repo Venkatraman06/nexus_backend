@@ -142,6 +142,14 @@ class NotificationEngine:
             aid = payload.get("assignee_id")
             return list(Employee.objects.filter(id=aid, is_active=True, is_deleted=False)) if aid else []
 
+        if et == "social_post.published":
+            # Notify all active employees when a company-wide post is published
+            return list(_active_employees())
+
+        if et == "social_post.pending_approval":
+            # Recipients already specified in event.recipient_ids
+            return []
+
         return []
 
     @classmethod

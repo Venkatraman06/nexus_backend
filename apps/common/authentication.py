@@ -7,6 +7,28 @@ from rest_framework.exceptions import AuthenticationFailed
 logger = logging.getLogger(__name__)
 
 
+def _extract_jwt_sub(access_token: str) -> str | None:
+    """Decode JWT locally and extract the `sub` claim.
+
+    Keycloak 26 sometimes omits `sub` from the introspection endpoint
+    response.  This helper reads it straight from the JWT payload.
+    """
+    import base64, json
+    try:
+        parts = access_token.split(".")
+        if len(parts) < 2:
+            return None
+        payload_b64 = parts[1]
+        padding = 4 - len(payload_b64) % 4
+        if padding != 4:
+            payload_b64 += "=" * padding
+        decoded = base64.b64decode(payload_b64)
+        payload = json.loads(decoded)
+        return payload.get("sub")
+    except Exception:
+        return None
+
+
 def _keycloak_openid():
     from keycloak import KeycloakOpenID
     return KeycloakOpenID(
@@ -37,24 +59,31 @@ class KeycloakAuthentication(BaseAuthentication):
             if not token_info.get("active"):
                 raise AuthenticationFailed("Invalid or expired token")
 
+            # Keycloak 26 sometimes omits the "sub" claim from introspection.
+            # Fall back to decoding the JWT locally, then to preferred_username.
             user_id = token_info.get("sub")
             if not user_id:
+                user_id = _extract_jwt_sub(access_token)
+
+            # Keycloak lowercases usernames — will do case-insensitive lookup below
+            username = token_info.get("preferred_username")
+            if not user_id and not username:
                 raise AuthenticationFailed("Token missing subject claim")
 
-            user_info = kc.userinfo(access_token)
-            username = user_info.get("preferred_username") or token_info.get("preferred_username")
-
             from apps.accounts.models import Employee
-            user = Employee.objects.filter(keycloak_id=user_id).first()
+            user = None
+            if user_id:
+                user = Employee.objects.filter(keycloak_id=user_id).first()
             if user is None and username:
-                user = Employee.objects.filter(username=username).first()
+                user = Employee.objects.filter(username__iexact=username).first()
             if user is None:
                 raise AuthenticationFailed("Employee not found. Run sync_employees first.")
 
             # Resolve and attach Keycloak permissions (cached in Redis)
             from packages.keycloak.permissions import PermissionResolver
-            request.user_permissions = PermissionResolver().resolve_permissions(user_id)
-            request.keycloak_user_id = user_id
+            kc_user_id = user_id or user.keycloak_id or ""
+            request.user_permissions = PermissionResolver().resolve_permissions(kc_user_id)
+            request.keycloak_user_id = kc_user_id
 
             return user, None
 
@@ -63,41 +92,3 @@ class KeycloakAuthentication(BaseAuthentication):
         except Exception as exc:
             logger.error("Keycloak token validation failed: %s", exc)
             raise AuthenticationFailed(f"Token validation failed: {exc}")
-
-    # def authenticate(self, request):
-    #     auth_header = request.headers.get("Authorization", "")
-    #     if not auth_header.startswith("Bearer "):
-    #         return None
-
-    #     access_token = auth_header.split(" ", 1)[1]
-
-    #     try:
-    #         import base64, json
-    #         parts = access_token.split('.')
-    #         payload = parts[1] + '=' * (4 - len(parts[1]) % 4)
-    #         token_info = json.loads(base64.b64decode(payload))
-
-    #         user_id = token_info.get("sub")
-    #         if not user_id:
-    #             raise AuthenticationFailed("Token missing subject claim")
-
-    #         username = token_info.get("preferred_username")
-
-    #         from apps.accounts.models import Employee
-    #         user = Employee.objects.filter(keycloak_id=user_id).first()
-    #         if user is None and username:
-    #             user = Employee.objects.filter(username=username).first()
-    #         if user is None:
-    #             raise AuthenticationFailed("Employee not found. Run sync_employees first.")
-
-           
-    #         request.user_permissions = PermissionResolver().resolve_permissions(user_id)
-    #         request.keycloak_user_id = user_id
-
-    #         return user, None
-
-    #     except AuthenticationFailed:
-    #         raise
-    #     except Exception as exc:
-    #         logger.error("Keycloak token validation failed: %s", exc)
-    #         raise AuthenticationFailed(f"Token validation failed: {exc}")
