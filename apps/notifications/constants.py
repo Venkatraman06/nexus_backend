@@ -30,6 +30,7 @@ class ReferenceType(models.TextChoices):
     MILESTONE = "milestone", "Milestone"
     PAYMENT = "payment", "Payment"
     FOLLOWUP = "followup", "Follow-up"
+    SOCIAL_POST = "social_post", "Social Post"
 
 
 class EventType(models.TextChoices):
@@ -49,6 +50,8 @@ class EventType(models.TextChoices):
     PAYMENT_OVERDUE = "payment.overdue", "Payment Overdue"
     FOLLOWUP_DUE_TODAY = "followup.due_today", "Follow-up Due Today"
     FOLLOWUP_OVERDUE = "followup.overdue", "Follow-up Overdue"
+    SOCIAL_POST_PENDING_APPROVAL = "social_post.pending_approval", "Social Post Pending Approval"
+    SOCIAL_POST_PUBLISHED = "social_post.published", "Social Post Published"
 
 
 # Channels enabled today — extend without changing call sites.

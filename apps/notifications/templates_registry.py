@@ -102,6 +102,20 @@ DEFAULT_TEMPLATES = [
         "default_action_url": "/payment/invoices/{reference_id}",
     },
     {
+        "event_type": EventType.SOCIAL_POST_PENDING_APPROVAL,
+        "title_template": "Post pending approval: {title}",
+        "message_template": "{created_by_name} submitted a new post \"{title}\" for approval — {content_preview}",
+        "severity": NotificationSeverity.INFO,
+        "default_action_url": "",
+    },
+    {
+        "event_type": EventType.SOCIAL_POST_PUBLISHED,
+        "title_template": "New post: {title}",
+        "message_template": "{created_by_name} published a new post: \"{title}\" — {content_preview}",
+        "severity": NotificationSeverity.INFO,
+        "default_action_url": "",
+    },
+    {
         "event_type": EventType.FOLLOWUP_DUE_TODAY,
         "title_template": "Follow-up today: {type_label}",
         "message_template": "\"{title}\" ({type_label}) is scheduled for today{time_suffix}.",

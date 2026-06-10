@@ -118,5 +118,12 @@
   {"name": "pmt.crm.followup.create",     "description": "Create follow-up records",               "category": "CRM & Finance"},
   {"name": "pmt.crm.followup.update",     "description": "Update follow-up records",               "category": "CRM & Finance"},
   {"name": "pmt.crm.followup.delete",     "description": "Delete follow-up records",               "category": "CRM & Finance"},
-  {"name": "pmt.crm.followup.transition", "description": "Transition follow-up workflow states",   "category": "CRM & Finance"}
+  {"name": "pmt.crm.followup.transition", "description": "Transition follow-up workflow states",   "category": "CRM & Finance"},
+
+  {"name": "pmt.social_feed.view",       "description": "View social feed posts",               "category": "Social Feed"},
+  {"name": "pmt.social_feed.create",     "description": "Create social feed posts",              "category": "Social Feed"},
+  {"name": "pmt.social_feed.update",     "description": "Update social feed posts",              "category": "Social Feed"},
+  {"name": "pmt.social_feed.delete",     "description": "Delete social feed posts",              "category": "Social Feed"},
+  {"name": "pmt.social_feed.transition", "description": "Transition social post workflow states", "category": "Social Feed"},
+  {"name": "pmt.social_feed.manage",     "description": "Manage/approve social feed posts",       "category": "Social Feed"}
 ]

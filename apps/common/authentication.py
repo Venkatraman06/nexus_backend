@@ -6,7 +6,6 @@ from rest_framework.exceptions import AuthenticationFailed
 
 logger = logging.getLogger(__name__)
 
-
 def _keycloak_openid():
     from keycloak import KeycloakOpenID
     return KeycloakOpenID(
@@ -63,41 +62,3 @@ class KeycloakAuthentication(BaseAuthentication):
         except Exception as exc:
             logger.error("Keycloak token validation failed: %s", exc)
             raise AuthenticationFailed(f"Token validation failed: {exc}")
-
-    # def authenticate(self, request):
-    #     auth_header = request.headers.get("Authorization", "")
-    #     if not auth_header.startswith("Bearer "):
-    #         return None
-
-    #     access_token = auth_header.split(" ", 1)[1]
-
-    #     try:
-    #         import base64, json
-    #         parts = access_token.split('.')
-    #         payload = parts[1] + '=' * (4 - len(parts[1]) % 4)
-    #         token_info = json.loads(base64.b64decode(payload))
-
-    #         user_id = token_info.get("sub")
-    #         if not user_id:
-    #             raise AuthenticationFailed("Token missing subject claim")
-
-    #         username = token_info.get("preferred_username")
-
-    #         from apps.accounts.models import Employee
-    #         user = Employee.objects.filter(keycloak_id=user_id).first()
-    #         if user is None and username:
-    #             user = Employee.objects.filter(username=username).first()
-    #         if user is None:
-    #             raise AuthenticationFailed("Employee not found. Run sync_employees first.")
-
-           
-    #         request.user_permissions = PermissionResolver().resolve_permissions(user_id)
-    #         request.keycloak_user_id = user_id
-
-    #         return user, None
-
-    #     except AuthenticationFailed:
-    #         raise
-    #     except Exception as exc:
-    #         logger.error("Keycloak token validation failed: %s", exc)
-    #         raise AuthenticationFailed(f"Token validation failed: {exc}")

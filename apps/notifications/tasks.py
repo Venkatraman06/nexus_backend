@@ -61,7 +61,7 @@ def scan_due_date_reminders() -> dict:
 
     for project in Project.objects.filter(
         end_date=today, is_deleted=False, manager__isnull=False,
-    ).select_related("manager"):
+    ).eligible_for_due_tracking().select_related("manager"):
         publish_event(
             EventType.PROJECT_DUE_REMINDER,
             ReferenceType.PROJECT,

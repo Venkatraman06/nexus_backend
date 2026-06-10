@@ -7,6 +7,12 @@ from django.utils import timezone
 from apps.common.models import BaseModel
 from packages.workflow.field import StateField
 
+from .querysets import ProjectQuerySet
+
+
+class ProjectManager(models.Manager.from_queryset(ProjectQuerySet)):
+    pass
+
 
 class Client(BaseModel):
     name             = models.CharField(max_length=200, unique=True)
@@ -71,6 +77,8 @@ class Project(BaseModel):
         related_name="managed_projects",
     )
     workflow_state = StateField(related_name="projects")
+
+    objects = ProjectManager()
 
     class Meta:
         db_table = "project_project"

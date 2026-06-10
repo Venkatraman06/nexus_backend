@@ -18,7 +18,13 @@
     "pmt.hrms.compliance.view",
     "pmt.hrms.compliance.create",
     "pmt.policy.view",
-    "pmt.role.view"
+    "pmt.role.view",
+    "pmt.social_feed.view",
+    "pmt.social_feed.create",
+    "pmt.social_feed.update",
+    "pmt.social_feed.delete",
+    "pmt.social_feed.transition",
+    "pmt.social_feed.manage"
   ],
   "Project Manager": [
     "pmt.dashboard.own.view",
@@ -73,6 +79,8 @@
     "pmt.crm.followup.update",
     "pmt.crm.followup.delete",
     "pmt.crm.followup.transition",
+    "pmt.social_feed.view",
+    "pmt.social_feed.create",
     "pmt.role.view"
   ],
   "Employee": [
@@ -93,6 +101,8 @@
     "pmt.crm.followup.view",
     "pmt.crm.followup.create",
     "pmt.crm.followup.update",
-    "pmt.crm.followup.transition"
+    "pmt.crm.followup.transition",
+    "pmt.social_feed.view",
+    "pmt.social_feed.create"
   ]
 }
