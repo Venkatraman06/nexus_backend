@@ -134,3 +134,10 @@ MEDIA_URL = f"/{URL_PREFIX}/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Workflow slugs excluded from due / overdue / delayed tracking (comma-separated env override).
+PROJECT_DUE_EXCLUDED_WORKFLOW_SLUGS = [
+    s.strip()
+    for s in config("PROJECT_DUE_EXCLUDED_WORKFLOW_SLUGS", default="close,cancelled").split(",")
+    if s.strip()
+]

@@ -18,10 +18,13 @@ from apps.payroll.models import Payroll
 from apps.timesheets.models import WeeklyTimesheet
 from apps.common.constants import TimesheetStatus
 from apps.timesheets.services import missing_timesheets, week_bounds
+from apps.projects.constants import project_excluded_from_due_tracking
 
 
 def _project_health_status(project, today):
     """Return ON_TRACK | AT_RISK | DELAYED for a project."""
+    if project_excluded_from_due_tracking(project):
+        return "ON_TRACK"
     if project.end_date and project.end_date < today:
         return "DELAYED"
     if not project.end_date:
@@ -47,7 +50,7 @@ def _portfolio_projects(projects_qs, today, year=None, month=None):
     on_track = at_risk = delayed = 0
     project_list = []
 
-    for p in projects_qs.select_related("client", "manager"):
+    for p in projects_qs.select_related("client", "manager", "workflow_state"):
         health = _project_health_status(p, today)
         if health == "ON_TRACK":
             on_track += 1
@@ -71,7 +74,8 @@ def _portfolio_projects(projects_qs, today, year=None, month=None):
                 ).aggregate(t=Sum("hours"))["t"] or 0
             )
 
-        days_left = (p.end_date - today).days if p.end_date else None
+        is_final = project_excluded_from_due_tracking(p)
+        days_left = None if is_final else ((p.end_date - today).days if p.end_date else None)
         estimate = float(p.estimated_hours or 0)
         hours_pct = round((logged_hours / estimate * 100), 1) if estimate > 0 else 0
 
@@ -111,7 +115,8 @@ class PMODashboardView(APIView):
         month = int(request.query_params.get("month", today.month))
 
         active_projects_qs = Project.objects.filter(is_deleted=False, is_active=True)
-        portfolio = _portfolio_projects(active_projects_qs, today, year, month)
+        due_tracking_qs = active_projects_qs.eligible_for_due_tracking()
+        portfolio = _portfolio_projects(due_tracking_qs, today, year, month)
         health_summary = portfolio["summary"]
 
         project_summary = {
@@ -746,7 +751,7 @@ class ProjectHealthView(APIView):
         today = date.today()
         year = int(request.query_params.get("year", today.year))
         month = int(request.query_params.get("month", today.month))
-        projects = Project.objects.filter(is_deleted=False, is_active=True)
+        projects = Project.objects.filter(is_deleted=False, is_active=True).eligible_for_due_tracking()
         portfolio = _portfolio_projects(projects, today, year, month)
         return Response(portfolio)
 

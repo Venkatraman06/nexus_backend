@@ -1,6 +1,7 @@
 from django.db import models
 
 from apps.common.models import BaseModel
+from packages.storages.dynamic_storage import DynamicS3Storage
 from packages.workflow.field import StateField
 
 
@@ -9,10 +10,12 @@ class SocialPost(BaseModel):
     content = models.TextField(blank=True, default="")
     image = models.ImageField(
         upload_to="social_feed/images/",
+        storage=DynamicS3Storage,
         null=True, blank=True,
     )
     attachment = models.FileField(
         upload_to="social_feed/attachments/",
+        storage=DynamicS3Storage,
         null=True, blank=True,
     )
     created_by_name = models.CharField(max_length=200, blank=True, default="")
