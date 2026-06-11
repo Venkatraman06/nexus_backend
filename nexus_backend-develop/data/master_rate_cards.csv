@@ -1,0 +1,13 @@
+designation,department,hr_daily_rate,client_billing_rate
+Intern,Full Stack,150,200
+Engineer,Full Stack,200,250
+Senior Engineer,Full Stack,300,400
+Team Lead,Full Stack,500,600
+Intern,Cyber Analyst,100,120
+Engineer,Cyber Analyst,120,150
+Senior Engineer,Cyber Analyst,250,300
+Team Lead,Cyber Analyst,350,400
+Intern,QA & Tester,100,100
+Engineer,QA & Tester,150,200
+Senior Engineer,QA & Tester,200,250
+Team Lead,QA & Tester,300,350
