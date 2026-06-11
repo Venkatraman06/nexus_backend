@@ -170,3 +170,29 @@ class RateCardSerializer(serializers.ModelSerializer):
                 f"Rate card for {desig} / {dept} already exists."
             )
         return data
+
+from apps.attendance.models import LeaveType, LeavePolicyRule
+
+
+class LeaveTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = LeaveType
+        fields = ["id", "name", "code", "max_days", "is_paid", "color"]
+
+
+class LeavePolicyRuleSerializer(serializers.ModelSerializer):
+    leave_type_name  = serializers.CharField(source="leave_type.name",  read_only=True)
+    leave_type_code  = serializers.CharField(source="leave_type.code",  read_only=True)
+    leave_type_color = serializers.CharField(source="leave_type.color", read_only=True)
+    is_paid          = serializers.BooleanField(source="leave_type.is_paid", read_only=True)
+
+    class Meta:
+        model  = LeavePolicyRule
+        fields = [
+            "id", "leave_type", "leave_type_name", "leave_type_code",
+            "leave_type_color", "is_paid", "total_days", "carry_forward",
+            "carry_forward_limit", "applicable_to", "effective_from",
+            "effective_to", "loss_of_pay_after", "auto_allocate",
+            "notes", "created_at",
+        ]
+        read_only_fields = ["id", "created_at"]

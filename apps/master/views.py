@@ -191,3 +191,69 @@ class BillingTypeViewSet(ModelViewSet):
 class BillingTypeDropdownView(DropdownView):
     queryset = BillingType.objects.all()
     serializer_class = BillingTypeDropdownSerializer
+from apps.attendance.models import LeaveType, LeaveBalance
+from apps.attendance.models import LeavePolicyRule
+from .serializers import LeaveTypeSerializer, LeavePolicyRuleSerializer
+from apps.accounts.models import Employee
+from rest_framework.decorators import action
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from .serializers import LeaveTypeSerializer, LeavePolicyRuleSerializer
+
+
+class LeaveTypeViewSet(ModelViewSet):
+    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    PERMISSION_MAP     = _HRMS_MASTER_PERMS
+    serializer_class   = LeaveTypeSerializer
+    queryset           = LeaveType.objects.all()
+    filterset_fields   = ["is_paid"]
+    search_fields      = ["name", "code"]
+
+
+class LeavePolicyRuleViewSet(ModelViewSet):
+    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    PERMISSION_MAP     = _HRMS_MASTER_PERMS
+    serializer_class   = LeavePolicyRuleSerializer
+    queryset           = LeavePolicyRule.objects.select_related("leave_type").all()
+    filterset_fields   = ["effective_from", "leave_type"]
+
+    @action(detail=True, methods=["post"], url_path="allocate")
+    def allocate(self, request, pk=None):
+        rule = self.get_object()
+        year = int(request.data.get("year", rule.effective_from))
+        employees = Employee.objects.filter(is_active=True, is_deleted=False)
+        created = updated = 0
+        for emp in employees:
+            obj, was_created = LeaveBalance.objects.get_or_create(
+                employee=emp, leave_type=rule.leave_type, year=year,
+                defaults={"total_days": rule.total_days, "used_days": 0},
+            )
+            if was_created:
+                created += 1
+            else:
+                updated += 1
+        return Response({"year": year, "created": created, "updated": updated, "total_employees": employees.count()})
+
+
+class LeaveBalanceAssignView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        year        = request.data.get("year")
+        assignments = request.data.get("assignments", [])
+        if not year or not assignments:
+            return Response({"detail": "year and assignments are required."}, status=status.HTTP_400_BAD_REQUEST)
+        results = []
+        for a in assignments:
+            try:
+                emp  = Employee.objects.get(id=a["employee_id"], is_deleted=False)
+                lt   = LeaveType.objects.get(id=a["leave_type_id"])
+                obj, created = LeaveBalance.objects.update_or_create(
+                    employee=emp, leave_type=lt, year=int(year),
+                    defaults={"total_days": a["total_days"]},
+                )
+                results.append({"employee_name": emp.full_name, "leave_type": lt.name, "created": created})
+            except Exception as e:
+                results.append({"error": str(e), "data": a})
+        return Response({"assigned": len(results), "results": results})
