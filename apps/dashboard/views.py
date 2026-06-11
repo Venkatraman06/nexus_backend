@@ -555,20 +555,22 @@ class EmployeeDashboardView(APIView):
         }
 
         # ── Leave Balances ────────────────────────────────────────────
+        # ── Leave Balances ────────────────────────────────────────────
         leave_balances = []
         for lb in LeaveBalance.objects.filter(
-            employee=me, year=today.year
+        employee=me, year=today.year
         ).select_related("leave_type"):
             leave_balances.append({
-                "leave_type":  lb.leave_type.name,
-                "code":        lb.leave_type.code,
-                "color":       lb.leave_type.color,
-                "is_paid":     lb.leave_type.is_paid,
-                "total":       float(lb.total_days),
-                "used":        float(lb.used_days),
-                "remaining":   lb.remaining_days,
-            })
-
+        "id":               str(lb.id),
+        "leave_type_id":    str(lb.leave_type.id),
+        "leave_type_name":  lb.leave_type.name,
+        "leave_type_code":  lb.leave_type.code,
+        "leave_type_color": lb.leave_type.color,
+        "is_paid":          lb.leave_type.is_paid,
+        "total_days":       float(lb.total_days),
+        "used_days":        float(lb.used_days),
+        "remaining_days":   lb.remaining_days,
+    })
         # ── Work & break statistics — this month ─────────────────────
         import datetime as _dt
         working_recs = list(month_records.filter(
@@ -609,18 +611,20 @@ class EmployeeDashboardView(APIView):
             employee=me, is_deleted=False
         ).select_related("leave_type").order_by("-created_at")[:5]
         leave_requests_data = [
-            {
-                "id":         str(lr.id),
-                "leave_type": lr.leave_type.name,
-                "color":      lr.leave_type.color,
-                "start_date": str(lr.start_date),
-                "end_date":   str(lr.end_date),
-                "days_count": float(lr.days_count),
-                "status":     lr.status,
-                "reason":     lr.reason,
-            }
-            for lr in recent_leaves
-        ]
+    {
+        "id":               str(lr.id),
+        "leave_type":       lr.leave_type.name,
+        "leave_type_name":  lr.leave_type.name,
+        "leave_type_color": lr.leave_type.color,
+        "color":            lr.leave_type.color,
+        "start_date":       str(lr.start_date),
+        "end_date":         str(lr.end_date),
+        "days_count":       float(lr.days_count),
+        "status":           lr.status,
+        "reason":           lr.reason,
+    }
+    for lr in recent_leaves
+]
 
         # ── Reporting hierarchy ───────────────────────────────────────
         def _pic(emp):

@@ -103,3 +103,25 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
 class LeaveReviewSerializer(serializers.Serializer):
     status  = serializers.ChoiceField(choices=["APPROVED", "REJECTED"])
     remarks = serializers.CharField(required=False, allow_blank=True, default="")
+
+class LeaveBalanceSerializer(serializers.ModelSerializer):
+    leave_type_id    = serializers.CharField(source="leave_type.id", read_only=True)
+    leave_type_name  = serializers.CharField(source="leave_type.name", read_only=True)
+    leave_type_code  = serializers.CharField(source="leave_type.code", read_only=True)
+    leave_type_color = serializers.CharField(source="leave_type.color", read_only=True)
+    is_paid          = serializers.BooleanField(source="leave_type.is_paid", read_only=True)
+    pending_days     = serializers.SerializerMethodField()
+    remaining_days   = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = LeaveBalance
+        fields = [
+            "id", "leave_type_id", "leave_type_name", "leave_type_code", "leave_type_color",
+            "is_paid", "year", "total_days", "used_days", "pending_days", "remaining_days",
+        ]
+
+    def get_pending_days(self, obj):
+        return obj.pending_days
+
+    def get_remaining_days(self, obj):
+        return obj.remaining_days
