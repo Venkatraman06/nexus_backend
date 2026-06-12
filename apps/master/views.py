@@ -29,8 +29,8 @@ class DropdownView(ListAPIView):
 
 
 _HRMS_MASTER_PERMS = {
-    "list": "pmt.master.hrms.view",
-    "retrieve": "pmt.master.hrms.view",
+    "list":           "pmt.hrms.attendance.view",  # ← allow HR to list
+    "retrieve":       "pmt.hrms.attendance.view",
     "create": "pmt.master.hrms.create",
     "update": "pmt.master.hrms.update",
     "partial_update": "pmt.master.hrms.update",
@@ -269,3 +269,30 @@ class HolidayViewSet(ModelViewSet):
     queryset           = Holiday.objects.all()
     filterset_fields   = ["year", "holiday_type", "is_active"]
     search_fields      = ["name"]
+
+
+class WFHRequestAdminView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.attendance.models import WFHRequest  # adjust import if needed
+        status_filter = request.query_params.get("status")
+        qs = WFHRequest.objects.filter(is_deleted=False).select_related("employee")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        pending_count = WFHRequest.objects.filter(is_deleted=False, status="PENDING").count()
+        data = [
+            {
+                "id":             str(r.id),
+                "employee_name":  r.employee.full_name,
+                "employee_code":  r.employee.employee_code,
+                "department":     r.employee.department_ref.name if r.employee.department_ref_id else "",
+                "requested_date": str(r.requested_date),
+                "reason":         r.reason,
+                "status":         r.status,
+                "rejection_note": getattr(r, "rejection_note", ""),
+                "created_at":     str(r.created_at),
+            }
+            for r in qs.order_by("-created_at")
+        ]
+        return Response({"results": data, "pending_count": pending_count})

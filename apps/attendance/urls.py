@@ -1,12 +1,13 @@
 from django.urls import path
+from rest_framework import views
 from .views import (
-    TodayAttendanceView, CheckInView, CheckOutView, MonthlyAttendanceView,
+    EmployeeMonthlySummaryView, TodayAttendanceView, CheckInView, CheckOutView, MonthlyAttendanceView,
     StartBreakView, EndBreakView, AttendanceTrackerView, AttendanceExportView,
     AttendanceOverviewView, EmployeeCalendarView,
     LeaveTypeListView, MyLeaveBalancesView,
     MyLeaveRequestListView, LeaveRequestDetailView, LeaveReviewView,
     AdminLeaveRequestListView,
-    AttendanceListView, AttendanceClockInEnableView,
+    AttendanceListView, AttendanceClockInEnableView,EmployeeShiftView,
 )
 
 urlpatterns = [
@@ -28,4 +29,7 @@ urlpatterns = [
     path("leave/requests/<uuid:pk>/",        LeaveRequestDetailView.as_view(),     name="leave-request-detail"),
     path("leave/requests/<uuid:pk>/review/", LeaveReviewView.as_view(),            name="leave-review"),
     path("leave/admin/requests/",            AdminLeaveRequestListView.as_view(),  name="leave-admin-requests"),
+    path("attendance/employee-shifts/",           EmployeeShiftView.as_view(), name="attendance-employee-shifts-list"),
+    path("attendance/employee-shifts/<uuid:pk>/", EmployeeShiftView.as_view(), name="attendance-employee-shifts-detail"),
+    path("employee-summary/", EmployeeMonthlySummaryView.as_view(), name="employee-monthly-summary"),
 ]

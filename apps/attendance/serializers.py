@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import AttendanceRecord, AttendanceBreak, LeaveType, LeaveBalance, LeaveRequest
-
+from .models import AttendanceClockInEnable  # add this import at the top
 
 class AttendanceBreakSerializer(serializers.ModelSerializer):
     duration_minutes = serializers.ReadOnlyField()
@@ -187,3 +187,14 @@ class LeaveBalanceSerializer(serializers.ModelSerializer):
 
     def get_remaining_days(self, obj):
         return obj.remaining_days
+
+
+
+class AttendanceClockInEnableSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = AttendanceClockInEnable
+        fields = [
+            "id", "employee", "date", "enabled",
+            "enabled_by", "shift_category", "job_type",
+        ]
+        read_only_fields = ["id", "enabled_by"]

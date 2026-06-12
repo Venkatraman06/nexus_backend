@@ -261,26 +261,39 @@ class LeaveMonthLock(models.Model):
         return f"{emp} | {self.period_label}"
 
 class AttendanceClockInEnable(BaseModel):
-    employee       = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
-        related_name="clockin_enables",
-    )
-    date           = models.DateField()
+    employee       = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="clockin_enables")
+    # Keep old date field as nullable for backward compat, new code uses date_from/date_to
+    date           = models.DateField(null=True, blank=True)
+    date_from      = models.DateField(null=True, blank=True)
+    date_to        = models.DateField(null=True, blank=True)
     enabled        = models.BooleanField(default=True)
-    enabled_by     = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
-        null=True, blank=True, related_name="clockin_enables_granted",
-    )
-    shift_category = models.ForeignKey(
-        "master.ShiftCategory", on_delete=models.SET_NULL,
-        null=True, blank=True, related_name="clockin_enables",
-    )
+    enabled_by     = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="clockin_enables_granted")
+    shift_category = models.ForeignKey("master.ShiftCategory", on_delete=models.SET_NULL, null=True, blank=True, related_name="clockin_enables")
     job_type       = models.CharField(max_length=20, null=True, blank=True)
 
     class Meta:
         db_table        = "hrms_attendance_clockin_enable"
-        unique_together = ("employee", "date")
-        ordering        = ["-date"]
+        # Remove unique_together on date since we now use date_from/date_to
+        ordering        = ["-date_from"]
 
     def __str__(self):
-        return f"{self.employee} | {self.date} | {'enabled' if self.enabled else 'disabled'}"
+        return f"{self.employee} | {self.date_from} to {self.date_to} | {'enabled' if self.enabled else 'disabled'}"
+class EmployeeShift(BaseModel):
+    employee       = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name="employee_shifts",
+    )
+    shift          = models.ForeignKey(
+        "master.ShiftCategory", on_delete=models.CASCADE,
+        related_name="employee_assignments",
+    )
+    effective_from = models.DateField()
+    effective_to   = models.DateField(null=True, blank=True)
+    job_type       = models.CharField(max_length=20, null=True, blank=True)
+
+    class Meta:
+        db_table = "hrms_employee_shift"
+        ordering = ["-effective_from"]
+
+    def __str__(self):
+        return f"{self.employee} | {self.shift.name} | {self.effective_from}"
