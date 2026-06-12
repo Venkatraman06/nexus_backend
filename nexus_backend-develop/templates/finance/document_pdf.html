@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ document.document_number }}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 13px;
+    color: #1a2332;
+    background: #fff;
+    padding: 40px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 32px;
+    padding-bottom: 20px;
+    border-bottom: 3px solid #1677ff;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-logo {
+    width: 40px; height: 40px;
+    background: #1677ff;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff;
+    font-size: 18px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .brand-name { font-size: 20px; font-weight: 700; color: #1677ff; }
+  .brand-sub  { font-size: 11px; color: #8c9ab0; margin-top: 2px; }
+
+  .doc-title-block { text-align: right; }
+  .doc-type {
+    font-size: 22px;
+    font-weight: 700;
+    color: #1a2332;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .doc-number {
+    font-size: 14px;
+    color: #1677ff;
+    font-weight: 600;
+    margin-top: 4px;
+  }
+  .doc-date  { font-size: 12px; color: #5a6a7e; margin-top: 3px; }
+
+  /* ── Status badge ── */
+  .status-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-top: 6px;
+  }
+  .status-draft         { background: #f5f5f5;  color: #8c8c8c; }
+  .status-sent          { background: #e6f4ff;  color: #0958d9; }
+  .status-accepted      { background: #f6ffed;  color: #389e0d; }
+  .status-generated     { background: #e6f4ff;  color: #0958d9; }
+  .status-paid          { background: #f6ffed;  color: #389e0d; }
+  .status-partially_paid{ background: #fffbe6;  color: #d48806; }
+  .status-rejected      { background: #fff2f0;  color: #cf1322; }
+  .status-expired       { background: #fff7e6;  color: #d46b08; }
+  .status-overdue       { background: #fff2f0;  color: #cf1322; }
+  .status-cancelled     { background: #f5f5f5;  color: #8c8c8c; }
+
+  /* ── Party section ── */
+  .parties {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 28px;
+  }
+  .party-card {
+    background: #f8fafc;
+    border: 1px solid #e8edf3;
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .party-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #8c9ab0;
+    margin-bottom: 8px;
+  }
+  .party-name  { font-size: 15px; font-weight: 700; color: #1a2332; margin-bottom: 4px; }
+  .party-line  { font-size: 12px; color: #5a6a7e; line-height: 1.6; }
+  .party-gst   { font-size: 11px; color: #5a6a7e; margin-top: 4px; font-family: monospace; }
+
+  /* ── Meta info bar ── */
+  .meta-bar {
+    display: flex;
+    gap: 24px;
+    background: #f0f5ff;
+    border: 1px solid #d6e4ff;
+    border-radius: 8px;
+    padding: 12px 18px;
+    margin-bottom: 24px;
+  }
+  .meta-item { flex: 1; }
+  .meta-key   { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #5a6a7e; font-weight: 600; }
+  .meta-value { font-size: 13px; font-weight: 600; color: #1a2332; margin-top: 2px; }
+
+  /* ── Line items table ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 24px;
+    font-size: 12.5px;
+  }
+  thead tr {
+    background: #1677ff;
+    color: #fff;
+  }
+  thead th {
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  thead th:last-child,
+  thead th.num { text-align: right; }
+  tbody tr:nth-child(even) { background: #f8fafc; }
+  tbody td {
+    padding: 9px 12px;
+    border-bottom: 1px solid #e8edf3;
+    color: #1a2332;
+  }
+  tbody td.num { text-align: right; }
+  tfoot td {
+    padding: 7px 12px;
+    font-size: 12.5px;
+  }
+  tfoot .subtotal-row td { border-top: 2px solid #e8edf3; padding-top: 12px; }
+  tfoot .total-row   td {
+    border-top: 2px solid #1677ff;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1677ff;
+    padding-top: 10px;
+  }
+  tfoot td.label { text-align: right; color: #5a6a7e; }
+  tfoot td.value { text-align: right; min-width: 120px; }
+
+  /* ── Notes ── */
+  .notes-section { margin-bottom: 28px; }
+  .section-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #8c9ab0;
+    margin-bottom: 8px;
+  }
+  .notes-box {
+    background: #fffbe6;
+    border: 1px solid #ffe58f;
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-size: 12.5px;
+    color: #5a6a7e;
+    line-height: 1.7;
+    white-space: pre-wrap;
+  }
+
+  /* ── Footer ── */
+  .footer {
+    border-top: 1px solid #e8edf3;
+    padding-top: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    color: #8c9ab0;
+    margin-top: 32px;
+  }
+  .footer-terms { max-width: 55%; line-height: 1.6; }
+  .sig-block { text-align: right; }
+  .sig-line {
+    border-top: 1px solid #1a2332;
+    margin-top: 36px;
+    padding-top: 6px;
+    font-size: 11px;
+    color: #5a6a7e;
+  }
+
+  /* ── Print button (screen only) ── */
+  .print-bar {
+    position: fixed;
+    top: 16px; right: 16px;
+    display: flex;
+    gap: 10px;
+    z-index: 1000;
+  }
+  .btn-print {
+    background: #1677ff;
+    color: #fff;
+    border: none;
+    padding: 8px 20px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(22,119,255,0.3);
+  }
+  .btn-print:hover { background: #0958d9; }
+
+  /* ── Print media ── */
+  @media print {
+    body    { padding: 20px; }
+    .print-bar { display: none; }
+    @page  { margin: 16mm 14mm; }
+  }
+</style>
+</head>
+<body>
+
+<div class="print-bar">
+  <button class="btn-print" onclick="window.print()">Download / Print PDF</button>
+</div>
+
+<!-- ── Header ─────────────────────────────────────────────── -->
+<div class="header">
+  <div class="brand">
+    <div class="brand-logo">P</div>
+    <div>
+      <div class="brand-name">PMT Platform</div>
+      <div class="brand-sub">Project Management & Tracker</div>
+    </div>
+  </div>
+
+  <div class="doc-title-block">
+    <div class="doc-type">{{ document.get_document_type_display }}</div>
+    <div class="doc-number">{{ document.document_number }}</div>
+    <div class="doc-date">Date: {{ document.created_at|date:"d M Y" }}</div>
+    <div>
+      <span class="status-badge status-{{ document.status }}">
+        {{ document.get_status_display }}
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Parties ────────────────────────────────────────────── -->
+<div class="parties">
+  <!-- Bill To -->
+  <div class="party-card">
+    <div class="party-label">Bill To</div>
+    <div class="party-name">{{ document.client_name }}</div>
+    {% if document.billing_address %}
+      <div class="party-line">{{ document.billing_address }}</div>
+    {% endif %}
+    {% if document.client_email %}
+      <div class="party-line">{{ document.client_email }}</div>
+    {% endif %}
+    {% if document.client_gst_number %}
+      <div class="party-gst">GSTIN: {{ document.client_gst_number }}</div>
+    {% endif %}
+  </div>
+
+  <!-- Ship To -->
+  <div class="party-card">
+    <div class="party-label">Ship To</div>
+    <div class="party-name">{{ document.client_name }}</div>
+    {% if document.shipping_address %}
+      <div class="party-line">{{ document.shipping_address }}</div>
+    {% else %}
+      <div class="party-line">{{ document.billing_address }}</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Meta bar ───────────────────────────────────────────── -->
+<div class="meta-bar">
+  {% if document.project %}
+  <div class="meta-item">
+    <div class="meta-key">Project</div>
+    <div class="meta-value">{{ document.project.name }}</div>
+  </div>
+  {% endif %}
+  {% if document.division %}
+  <div class="meta-item">
+    <div class="meta-key">Division</div>
+    <div class="meta-value">{{ document.division.name }}</div>
+  </div>
+  {% endif %}
+  <div class="meta-item">
+    <div class="meta-key">Currency</div>
+    <div class="meta-value">{{ document.currency }}</div>
+  </div>
+  {% if document.valid_until %}
+  <div class="meta-item">
+    <div class="meta-key">Valid Until</div>
+    <div class="meta-value">{{ document.valid_until|date:"d M Y" }}</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Line Items ─────────────────────────────────────────── -->
+<table>
+  <thead>
+    <tr>
+      <th style="width:4%">#</th>
+      <th style="width:44%">Description</th>
+      <th class="num" style="width:10%">Qty</th>
+      <th class="num" style="width:14%">Rate ({{ document.currency }})</th>
+      <th class="num" style="width:10%">GST %</th>
+      <th class="num" style="width:18%">Amount ({{ document.currency }})</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in line_items %}
+    <tr>
+      <td>{{ forloop.counter }}</td>
+      <td>{{ item.description }}</td>
+      <td class="num">{{ item.quantity }}</td>
+      <td class="num">{{ item.rate|floatformat:2 }}</td>
+      <td class="num">{{ item.gst_percentage }}%</td>
+      <td class="num">{{ item.amount|floatformat:2 }}</td>
+    </tr>
+    {% empty %}
+    <tr>
+      <td colspan="6" style="text-align:center; padding: 20px; color: #8c9ab0;">
+        No line items
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  <tfoot>
+    <tr class="subtotal-row">
+      <td colspan="5" class="label">Subtotal</td>
+      <td class="value">{{ document.subtotal|floatformat:2 }}</td>
+    </tr>
+    <tr>
+      <td colspan="5" class="label">GST Amount</td>
+      <td class="value">{{ document.gst_amount|floatformat:2 }}</td>
+    </tr>
+    <tr class="total-row">
+      <td colspan="5" class="label" style="color: #1677ff; font-weight: 700;">
+        Total ({{ document.currency }})
+      </td>
+      <td class="value">{{ document.total_amount|floatformat:2 }}</td>
+    </tr>
+  </tfoot>
+</table>
+
+<!-- ── Notes ─────────────────────────────────────────────── -->
+{% if document.notes %}
+<div class="notes-section">
+  <div class="section-title">Notes / Terms</div>
+  <div class="notes-box">{{ document.notes }}</div>
+</div>
+{% endif %}
+
+<!-- ── Footer ────────────────────────────────────────────── -->
+<div class="footer">
+  <div class="footer-terms">
+    <strong>Terms & Conditions:</strong><br>
+    Payment is due within 30 days of the invoice date. Please include the document number
+    as a reference in your payment. For queries, contact your account manager.
+  </div>
+  <div class="sig-block">
+    <div class="sig-line">Authorised Signatory</div>
+  </div>
+</div>
+
+</body>
+</html>

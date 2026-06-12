@@ -1,0 +1,24 @@
+[
+  {
+    "file": "HIT_NDA.pdf",
+    "document_type": "NDA",
+    "title": "Non-Disclosure and Confidentiality Agreement",
+    "version": "1.0",
+    "description": "Covers confidential information, cybersecurity obligations, access control, data protection, non-compete (5-year post-termination). Both Company and Employee must sign. Governed by Indian law.",
+    "effective_date": null,
+    "company": "Hackers Infotech",
+    "status": "ready",
+    "notes": "PDF is Hackers Infotech branded and ready to use. Non-compete period placeholder '[6/12/24 months]' and geography '[India/Global]' should be confirmed before printing."
+  },
+  {
+    "file": "HIT_Undertaking.pdf",
+    "document_type": "UNDERTAKING",
+    "title": "Undertaking Letter",
+    "version": "1.0",
+    "description": "Employee undertaking covering compliance with company rules, confidentiality, authorized use of assets, data protection. Single-page, employee-signed only.",
+    "effective_date": null,
+    "company": "Hackers Infotech",
+    "status": "needs_update",
+    "notes": "IMPORTANT: PDF body still contains 'SharyX (Mindnotix group of companies)' and address '11th Floor, Spacezone, Avinashi Road, Peelamedu, Coimbatore – 641004'. This must be updated to Hackers Infotech's correct address before issuing to employees."
+  }
+]

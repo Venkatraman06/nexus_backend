@@ -1,0 +1,11 @@
+name,is_active
+Admin,True
+CEO,True
+CTO,True
+Human Resource,True
+Project Manager & Architect,True
+Team Lead,True
+Senior Engineer,True
+Engineer,True
+Trainee Engineer,True
+Intern,True
