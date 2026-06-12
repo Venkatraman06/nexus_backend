@@ -25,7 +25,7 @@ from .serializers import (
     StartBreakSerializer,
     LeaveBalanceSerializer, LeaveRequestSerializer, LeaveReviewSerializer, LeaveTypeSerializer,
 )
-
+from apps.master.models import Holiday 
 # ── Break time limits (minutes) ──────────────────────────────────────────────
 BREAK_MAX_MINUTES = {
     "LUNCH": 45,
@@ -963,6 +963,14 @@ class EmployeeCalendarView(APIView):
         ).select_related("leave_type").exclude(status=LeaveRequestStatus.REJECTED)
 
         leave_map: dict = {}
+        holiday_map = {
+                h.date: h
+                for h in Holiday.objects.filter(
+                    date__year=year, date__month=month, is_active=True
+                )
+        }
+        print("DEBUG holiday_map:", holiday_map)  # Debug print removed
+        print("DEBUG holiday count:", len(holiday_map))  # Debug print removed
         for lr in leaves_qs:
             d = lr.start_date
             while d <= lr.end_date:
@@ -980,6 +988,8 @@ class EmployeeCalendarView(APIView):
             is_weekend = weekday >= 5
             rec        = rec_map.get(d)
             leave      = leave_map.get(d)
+            holiday_obj  = holiday_map.get(d)                          # ← moved up, always set
+            holiday_type = holiday_obj.holiday_type if holiday_obj else None
 
             if rec:
                 att_status    = rec.status
@@ -1016,6 +1026,8 @@ class EmployeeCalendarView(APIView):
                         display_status = "PENDING_LEAVE"; summary["pending_leave"] += 1
                     else:
                         display_status = "ON_LEAVE"; summary["on_leave"] += 1
+                elif holiday_obj:
+                    display_status = "HOLIDAY"; summary["holiday"] += 1
                 elif d > today:
                     display_status = "FUTURE"
                 else:
@@ -1046,6 +1058,7 @@ class EmployeeCalendarView(APIView):
                 "working_hours":  working_hours,
                 "notes":          notes,
                 "leave":          leave_info,
+                "holiday_type":   holiday_type,                      # ← always present now
             })
 
         return Response({

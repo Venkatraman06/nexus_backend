@@ -6,7 +6,7 @@ from django.db import models
 
 from apps.common.models import BaseModel
 
-
+import datetime as dt
 class AttendanceStatus(models.TextChoices):
     PRESENT     = "PRESENT",     "Present"
     ABSENT      = "ABSENT",      "Absent"
@@ -133,14 +133,18 @@ class LeaveBalance(BaseModel):
     @property
     def pending_days(self) -> float:
         return float(
-            self.employee.leave_requests
-            .filter(leave_type=self.leave_type, status=LeaveRequestStatus.PENDING)
-            .aggregate(t=models.Sum("days_count"))["t"] or 0
+        self.employee.leave_requests
+        .filter(
+            leave_type=self.leave_type,
+            status=LeaveRequestStatus.PENDING,
+            start_date__year=self.year,
         )
+        .aggregate(t=models.Sum("days_count"))["t"] or 0
+    )
 
     @property
     def remaining_days(self) -> float:
-        return max(0.0, float(self.total_days) - float(self.used_days))
+        return max(0.0, float(self.total_days) - float(self.used_days) - self.pending_days)
 
     def __str__(self):
         return f"{self.employee} | {self.leave_type.name} | {self.year}"
@@ -169,13 +173,27 @@ class LeaveRequest(BaseModel):
 
     def save(self, *args, **kwargs):
         if self.start_date and self.end_date:
-            delta = (self.end_date - self.start_date).days + 1
-            self.days_count = max(1, delta)
+            from apps.master.models import Holiday
+            from datetime import timedelta
+
+            holidays = set(
+                Holiday.objects.filter(
+                    date__gte=self.start_date,
+                    date__lte=self.end_date,
+                    is_active=True,
+                ).values_list("date", flat=True)
+            )
+
+            count = 0
+            current = self.start_date
+            while current <= self.end_date:
+                if current.weekday() < 5 and current not in holidays:
+                    count += 1
+                current += timedelta(days=1)
+
+            self.days_count = count
+
         super().save(*args, **kwargs)
-
-    def __str__(self):
-        return f"{self.employee} | {self.leave_type.name} | {self.start_date} – {self.end_date}"
-
 
 class LeavePolicyRule(models.Model):
     id                 = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

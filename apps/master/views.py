@@ -257,3 +257,15 @@ class LeaveBalanceAssignView(APIView):
             except Exception as e:
                 results.append({"error": str(e), "data": a})
         return Response({"assigned": len(results), "results": results})
+
+
+from .models import Holiday
+from .serializers import HolidaySerializer
+
+class HolidayViewSet(ModelViewSet):
+    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    PERMISSION_MAP     = _HRMS_MASTER_PERMS
+    serializer_class   = HolidaySerializer
+    queryset           = Holiday.objects.all()
+    filterset_fields   = ["year", "holiday_type", "is_active"]
+    search_fields      = ["name"]
