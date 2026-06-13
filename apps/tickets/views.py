@@ -134,7 +134,9 @@ class TicketViewSet(BaseModelViewSet):
         ).values_list("project_id", flat=True)
 
         accessible = set(managed_project_ids) | set(allocated_project_ids)
-        return qs.filter(project_id__in=accessible)
+        return qs.filter(
+            Q(project_id__in=accessible) | Q(assignee=user) | Q(reporter=user)
+        )
 
     def _can_access_project(self, project_id) -> bool:
         """Return True if request.user may create/edit tickets in this project."""

@@ -261,23 +261,30 @@ class LeaveMonthLock(models.Model):
         return f"{emp} | {self.period_label}"
 
 class AttendanceClockInEnable(BaseModel):
-    employee       = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="clockin_enables")
-    # Keep old date field as nullable for backward compat, new code uses date_from/date_to
-    date           = models.DateField(null=True, blank=True)
-    date_from      = models.DateField(null=True, blank=True)
-    date_to        = models.DateField(null=True, blank=True)
+    employee       = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name="clockin_enables",
+    )
+    date_from      = models.DateField()
+    date_to        = models.DateField()
     enabled        = models.BooleanField(default=True)
-    enabled_by     = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="clockin_enables_granted")
-    shift_category = models.ForeignKey("master.ShiftCategory", on_delete=models.SET_NULL, null=True, blank=True, related_name="clockin_enables")
+    enabled_by     = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="clockin_enables_granted",
+    )
+    shift_category = models.ForeignKey(
+        "master.ShiftCategory", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="clockin_enables",
+    )
     job_type       = models.CharField(max_length=20, null=True, blank=True)
 
     class Meta:
         db_table        = "hrms_attendance_clockin_enable"
-        # Remove unique_together on date since we now use date_from/date_to
         ordering        = ["-date_from"]
 
     def __str__(self):
-        return f"{self.employee} | {self.date_from} to {self.date_to} | {'enabled' if self.enabled else 'disabled'}"
+        return f"{self.employee} | {self.date_from}–{self.date_to} | {'enabled' if self.enabled else 'disabled'}"
+
 class EmployeeShift(BaseModel):
     employee       = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
@@ -297,3 +304,83 @@ class EmployeeShift(BaseModel):
 
     def __str__(self):
         return f"{self.employee} | {self.shift.name} | {self.effective_from}"
+
+
+class WFHSetting(BaseModel):
+    """HR-controlled flag: whether an employee is allowed to request WFH."""
+    employee    = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name="wfh_setting",
+    )
+    wfh_enabled = models.BooleanField(default=False)
+    updated_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="wfh_settings_updated",
+    )
+
+    class Meta:
+        db_table = "hrms_wfh_setting"
+
+    def __str__(self):
+        return f"{self.employee} | WFH={'yes' if self.wfh_enabled else 'no'}"
+
+class WFHRequest(BaseModel):
+    """Employee requests to work from home on a specific date."""
+    employee       = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name="wfh_requests",
+    )
+    requested_date = models.DateField()
+    reason         = models.TextField(blank=True, default="")
+    status         = models.CharField(
+        max_length=20,
+        choices=[("PENDING","Pending"),("APPROVED","Approved"),("REJECTED","Rejected")],
+        default="PENDING",
+    )
+    reviewed_by    = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="wfh_reviews",
+    )
+    rejection_note = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table        = "hrms_wfh_request"
+        unique_together = ("employee", "requested_date")
+        ordering        = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.employee} | {self.requested_date} | {self.status}"
+
+
+class ShiftChangeRequest(BaseModel):
+    """Employee requests a temporary or permanent shift change."""
+    REQUEST_TYPE = [("ONE_TIME", "One Time"), ("PERMANENT", "Permanent")]
+
+    employee       = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name="shift_change_requests",
+    )
+    request_type   = models.CharField(max_length=20, choices=REQUEST_TYPE, default="ONE_TIME")
+    requested_date = models.DateField(null=True, blank=True)   # for ONE_TIME
+    requested_shift = models.ForeignKey(
+        "master.ShiftCategory", on_delete=models.CASCADE,
+        related_name="change_requests",
+    )
+    reason         = models.TextField(blank=True, default="")
+    status         = models.CharField(
+        max_length=20,
+        choices=[("PENDING","Pending"),("APPROVED","Approved"),("REJECTED","Rejected")],
+        default="PENDING",
+    )
+    reviewed_by    = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="shift_change_reviews",
+    )
+    rejection_note = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "hrms_shift_change_request"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.employee} | {self.request_type} | {self.status}"
