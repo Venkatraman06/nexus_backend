@@ -308,10 +308,40 @@ class MeView(APIView):
 
         if is_superuser or is_staff:
             effective_perms = list(all_pmt)
+        # else:
+            # # Realm roles — filtered against catalog
+            # kc_perms: list = getattr(request, "user_permissions", [])
+            # effective_perms = [p for p in kc_perms if p in all_pmt_set]
+
+            # # Client roles from token — added directly WITHOUT catalog filter
+            # # because client roles like pmt.project.timesheet.approve are not
+            # # realm roles and won't appear in the Keycloak permissions catalog
+            # client_roles = [
+            #     p for p in getattr(request, "user_permissions", [])
+            #     if p not in all_pmt_set and p.startswith("pmt.")
+            # ]
+            # effective_perms = list(set(effective_perms + client_roles))
+
+            # if "pmt.dashboard.own.view" not in effective_perms:
+            #     effective_perms.append("pmt.dashboard.own.view")
+
         else:
-            kc_perms: list = getattr(request, "user_permissions", [])
-            effective_perms = [p for p in kc_perms if p in all_pmt_set]
-            # Every authenticated employee always gets their personal dashboard
+            all_user_perms: list = getattr(request, "user_permissions", [])
+            logger.info("DEBUG user_permissions: %s", all_user_perms)
+            print("DEBUG user_permissions:", all_user_perms)
+            print("DEBUG has approve:", "pmt.project.timesheet.approve" in all_user_perms)
+
+            # Keep realm roles that are in the catalog
+            catalog_perms = [p for p in all_user_perms if p in all_pmt_set]
+
+            # Also keep any pmt.* client roles even if not in catalog
+            extra_pmt_perms = [
+                p for p in all_user_perms
+                if p.startswith("pmt.") and p not in all_pmt_set
+            ]
+
+            effective_perms = list(set(catalog_perms + extra_pmt_perms))
+
             if "pmt.dashboard.own.view" not in effective_perms:
                 effective_perms.append("pmt.dashboard.own.view")
 

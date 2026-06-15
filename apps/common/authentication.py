@@ -52,7 +52,28 @@ class KeycloakAuthentication(BaseAuthentication):
 
             # Resolve and attach Keycloak permissions (cached in Redis)
             from packages.keycloak.permissions import PermissionResolver
-            request.user_permissions = PermissionResolver().resolve_permissions(user_id)
+            realm_perms = PermissionResolver().resolve_permissions(user_id)
+
+            # Also extract client roles from the token directly
+            import base64, json as _json
+            try:
+                payload_part = access_token.split(".")[1]
+                padding = 4 - len(payload_part) % 4
+                if padding != 4:
+                    payload_part += "=" * padding
+                token_payload = _json.loads(base64.b64decode(payload_part))
+                client_roles = (
+                    token_payload
+                    .get("resource_access", {})
+                    .get(settings.KEYCLOAK_CLIENT_ID, {})
+                    .get("roles", [])
+                )
+            except Exception as exc:
+                logger.warning("Could not decode client roles from token: %s", exc)
+                client_roles = []
+
+            # Merge realm + client roles (deduped, existing behavior preserved)
+            request.user_permissions = list(set(realm_perms + client_roles))
             request.keycloak_user_id = user_id
 
             return user, None
