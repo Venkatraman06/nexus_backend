@@ -755,7 +755,7 @@ def team_aggregate(manager=None, week_start: date | None = None, department_id=N
         qs = qs.filter(id__in=allocated_emp_ids)
  
     results = []
-    for emp in qs.select_related("department"):
+    for emp in qs:
         ts = WeeklyTimesheet.objects.filter(
             employee=emp,
             week_start=sunday,
@@ -769,7 +769,7 @@ def team_aggregate(manager=None, week_start: date | None = None, department_id=N
         results.append({
             "employee_id": str(emp.id),
             "employee_name": emp.full_name,
-            "department": emp.department.name if emp.department else None,
+            "department": emp.department if emp.department else None,
             "timesheet_id": str(ts.id) if ts else None,
             "status": ts_status,
             "total_hours": logged,
