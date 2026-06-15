@@ -137,3 +137,25 @@ class RateCard(models.Model):
 
     def __str__(self):
         return f"{self.designation_ref} / {self.department_ref} — ₹{self.hr_daily_rate}/day"
+
+class Holiday(models.Model):
+    id          = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name        = models.CharField(max_length=200)
+    date        = models.DateField()
+    year        = models.PositiveIntegerField()
+    holiday_type = models.CharField(max_length=20, choices=[
+        ("GOVERNMENT", "Government Holiday"),
+        ("COMPANY",    "Company Holiday"),
+    ], default="GOVERNMENT")
+    description = models.TextField(blank=True, default="")
+    is_active   = models.BooleanField(default=True)
+    created_at  = models.DateTimeField(auto_now_add=True)
+    updated_at  = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "master_holiday"
+        ordering = ["date"]
+        unique_together = ("date", "name")
+
+    def __str__(self):
+        return f"{self.name} ({self.date})"

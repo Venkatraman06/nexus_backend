@@ -9,7 +9,7 @@ from .views import (
     ClientCategoryViewSet, ClientCategoryDropdownView,
     BusinessTypeViewSet, BusinessTypeDropdownView,
     BillingTypeViewSet, BillingTypeDropdownView,
-    LeaveTypeViewSet, LeavePolicyRuleViewSet, LeaveBalanceAssignView,
+    LeaveTypeViewSet, LeavePolicyRuleViewSet, LeaveBalanceAssignView,HolidayViewSet
 )
 
 router = DefaultRouter()
@@ -26,6 +26,8 @@ router.register("master/billing-types",     BillingTypeViewSet,    basename="bil
 router.register("master/leave/types",        LeaveTypeViewSet,         basename="leave-type")
 router.register("master/leave/policy-rules", LeavePolicyRuleViewSet,   basename="leave-policy-rule")
 
+router.register("master/holidays", HolidayViewSet, basename="holiday")
+
 urlpatterns = router.urls + [
     path("master/dropdown/designations/",       DesignationDropdownView.as_view(),    name="dropdown-designations"),
     path("master/dropdown/departments/",        DepartmentDropdownView.as_view(),     name="dropdown-departments"),
@@ -37,4 +39,6 @@ urlpatterns = router.urls + [
     path("master/dropdown/business-types/",     BusinessTypeDropdownView.as_view(),   name="dropdown-business-types"),
     path("master/dropdown/billing-types/",      BillingTypeDropdownView.as_view(),    name="dropdown-billing-types"),
     path("master/leave/balances/assign/",        LeaveBalanceAssignView.as_view(),     name="leave-balance-assign"),
+
+    
 ]

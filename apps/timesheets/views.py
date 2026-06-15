@@ -106,6 +106,25 @@ class MyTimesheetWeekView(APIView):
                 "is_weekend": is_weekend,
             })
 
+        from .services import get_attendance_and_leave_for_week
+        attendance_map = get_attendance_and_leave_for_week(request.user, sunday, saturday)
+
+        # Merge attendance/holiday/leave into each day
+        for day in days:
+            att = attendance_map.get(day["date"], {})
+            day["check_in"]          = att.get("check_in")
+            day["check_out"]         = att.get("check_out")
+            day["working_hours"]     = att.get("working_hours", 0.0)
+            day["attendance_status"] = att.get("attendance_status")
+            day["is_holiday"]        = att.get("is_holiday", False)
+            day["holiday_name"]      = att.get("holiday_name")
+            day["holiday_type"]      = att.get("holiday_type")
+            day["is_on_leave"]       = att.get("is_on_leave", False)
+            day["leave_type_name"]   = att.get("leave_type_name")
+            day["leave_type_code"]   = att.get("leave_type_code")
+            day["leave_is_paid"]     = att.get("leave_is_paid")
+            day["leave_reason"]      = att.get("leave_reason")
+
         payload = {
             "weekly_timesheet": WeeklyTimesheetSerializer(weekly).data,
             "days": days,
@@ -113,6 +132,7 @@ class MyTimesheetWeekView(APIView):
             "daily_capacity": get_daily_capacity(),
             "is_editable": week_editable,
             "is_current_week": current_week,
+            "attendance_map": attendance_map,
         }
         return Response(payload)
 

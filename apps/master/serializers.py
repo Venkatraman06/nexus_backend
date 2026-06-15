@@ -196,3 +196,30 @@ class LeavePolicyRuleSerializer(serializers.ModelSerializer):
             "notes", "created_at",
         ]
         read_only_fields = ["id", "created_at"]
+
+
+
+from .models import Holiday
+
+class HolidaySerializer(serializers.ModelSerializer):
+    holiday_type_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = Holiday
+        fields = [
+            "id", "name", "date", "year", "holiday_type",
+            "holiday_type_label", "description", "is_active",
+            "created_at", "updated_at",
+            
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+        
+
+    def get_holiday_type_label(self, obj):
+        return dict(Holiday._meta.get_field("holiday_type").choices).get(obj.holiday_type, obj.holiday_type)
+
+    def validate(self, data):
+        date = data.get("date") or (self.instance.date if self.instance else None)
+        if date:
+            data["year"] = date.year
+        return data

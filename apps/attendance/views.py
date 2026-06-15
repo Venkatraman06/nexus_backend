@@ -2,30 +2,34 @@ import calendar
 import csv
 import io
 import datetime as dt
-from datetime import date
+from datetime import date,timedelta
 
 from django.db.models import Count, Q, Sum
 from django.http import HttpResponse
-from rest_framework import status
+from rest_framework import request, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 
+from apps.allocation import models
 from apps.common.permissions import IsAuthenticated, HasKeycloakPermission
 from apps.accounts import models as account_models
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
+from packages.keycloak import permissions
+
 from .models import (
     AttendanceRecord, AttendanceBreak, AttendanceStatus, BreakType,
     LeaveBalance, LeaveRequest, LeaveType, LeaveRequestStatus,
-    AttendanceClockInEnable,
+    AttendanceClockInEnable, ShiftChangeRequest, WFHRequest, WFHSetting,
 )
 from .serializers import (
     AttendanceRecordSerializer, CheckInSerializer, CheckOutSerializer,
     StartBreakSerializer,
     LeaveBalanceSerializer, LeaveRequestSerializer, LeaveReviewSerializer, LeaveTypeSerializer,
+    AttendanceClockInEnableSerializer,
 )
-
+from apps.master.models import Holiday 
 # ── Break time limits (minutes) ──────────────────────────────────────────────
 BREAK_MAX_MINUTES = {
     "LUNCH": 45,
@@ -60,6 +64,14 @@ STATUS_COLOR_MAP = {
 def _shift_times(employee):
     """Return (start_time, end_time) for the employee's shift, or (None, None)."""
     try:
+        from .models import EmployeeShift
+        es = EmployeeShift.objects.filter(
+            employee=employee, is_deleted=False, effective_from__lte=date.today()
+        ).filter(
+            Q(effective_to__isnull=True) | Q(effective_to__gte=date.today())
+        ).select_related("shift").order_by("-effective_from").first()
+        if es:
+            return es.shift.start_time, es.shift.end_time
         if employee.shift_category_id:
             sc = employee.shift_category
             return sc.start_time, sc.end_time
@@ -103,10 +115,8 @@ class TodayAttendanceView(APIView):
 
 
 class CheckInView(APIView):
-    """Mark check-in for today (captures geo-location)."""
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=["attendance"], request=CheckInSerializer, responses={200: AttendanceRecordSerializer})
     def post(self, request):
         serializer = CheckInSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -116,36 +126,39 @@ class CheckInView(APIView):
         lng      = serializer.validated_data.get("lng")
         me       = request.user
 
-        # Allow clock-in if shift_applicable=True OR a shift is assigned
-        has_shift = getattr(me, "shift_applicable", False) or bool(
-            getattr(me, "shift_category_id", None) or
-            (getattr(me, "custom_shift_start", None) and getattr(me, "custom_shift_end", None))
-        )
+        # ── Check if HR explicitly enabled clock-in for today ──
+        # This overrides ALL shift window restrictions
+        hr_enabled = is_clockin_allowed_for_no_shift(me, today)
 
-        if has_shift:
-            # Enforce shift window
-            shift_start, _ = _shift_times(me)
-            if shift_start:
-                ok, window = _check_shift_window(now_time, shift_start, before_min=5, after_min=5)
-                if not ok:
-                    return Response(
-                        {
-                            "detail": (
-                                f"Check-in allowed only within 5 min of shift start "
-                                f"({shift_start.strftime('%I:%M %p')}). "
-                                f"Allowed window: {window}."
-                            )
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-        else:
-            # No shift — require HR to have granted clock-in permission for today
-            if not is_clockin_allowed_for_no_shift(me, today):
+        if not hr_enabled:
+            has_shift = getattr(me, "shift_applicable", False) or bool(
+                getattr(me, "shift_category_id", None) or
+                (getattr(me, "custom_shift_start", None) and getattr(me, "custom_shift_end", None))
+            )
+
+            if has_shift:
+                shift_start, _ = _shift_times(me)
+                if shift_start:
+                    ok, window = _check_shift_window(now_time, shift_start, before_min=5, after_min=5)
+                    if not ok:
+                        return Response(
+                            {
+                                "detail": (
+                                    f"Check-in allowed only within 5 min of shift start "
+                                    f"({shift_start.strftime('%I:%M %p')}). "
+                                    f"Allowed window: {window}."
+                                )
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+            else:
+                # No shift and HR hasn't enabled — block
                 return Response(
                     {"detail": "You have not been granted clock-in permission for today."},
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
+        # ... rest of your code unchanged
         record, created = AttendanceRecord.objects.get_or_create(
             employee=request.user, date=today,
             defaults={
@@ -168,12 +181,9 @@ class CheckInView(APIView):
 
         return Response(AttendanceRecordSerializer(record).data)
 
-
 class CheckOutView(APIView):
-    """Mark check-out for today (captures geo-location)."""
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=["attendance"], request=CheckOutSerializer, responses={200: AttendanceRecordSerializer})
     def post(self, request):
         serializer = CheckOutSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -192,27 +202,30 @@ class CheckOutView(APIView):
         if record.check_out:
             return Response({"detail": "Already checked out today."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Allow check-out if shift_applicable=True OR a shift is assigned
-        has_shift = getattr(me, "shift_applicable", False) or bool(
-            getattr(me, "shift_category_id", None) or
-            (getattr(me, "custom_shift_start", None) and getattr(me, "custom_shift_end", None))
-        )
+        # ── HR override bypasses shift window ──
+        hr_enabled = is_clockin_allowed_for_no_shift(me, date.today())
 
-        if has_shift:
-            _, shift_end = _shift_times(me)
-            if shift_end:
-                ok, window = _check_shift_window(now_time, shift_end, before_min=5, after_min=10)
-                if not ok:
-                    return Response(
-                        {
-                            "detail": (
-                                f"Check-out allowed only within 5 min before / 10 min after "
-                                f"shift end ({shift_end.strftime('%I:%M %p')}). "
-                                f"Allowed window: {window}."
-                            )
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+        if not hr_enabled:
+            has_shift = getattr(me, "shift_applicable", False) or bool(
+                getattr(me, "shift_category_id", None) or
+                (getattr(me, "custom_shift_start", None) and getattr(me, "custom_shift_end", None))
+            )
+
+            if has_shift:
+                _, shift_end = _shift_times(me)
+                if shift_end:
+                    ok, window = _check_shift_window(now_time, shift_end, before_min=5, after_min=10)
+                    if not ok:
+                        return Response(
+                            {
+                                "detail": (
+                                    f"Check-out allowed only within 5 min before / 10 min after "
+                                    f"shift end ({shift_end.strftime('%I:%M %p')}). "
+                                    f"Allowed window: {window}."
+                                )
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
 
         # Auto-close any open break
         AttendanceBreak.objects.filter(
@@ -963,6 +976,14 @@ class EmployeeCalendarView(APIView):
         ).select_related("leave_type").exclude(status=LeaveRequestStatus.REJECTED)
 
         leave_map: dict = {}
+        holiday_map = {
+                h.date: h
+                for h in Holiday.objects.filter(
+                    date__year=year, date__month=month, is_active=True
+                )
+        }
+        print("DEBUG holiday_map:", holiday_map)  # Debug print removed
+        print("DEBUG holiday count:", len(holiday_map))  # Debug print removed
         for lr in leaves_qs:
             d = lr.start_date
             while d <= lr.end_date:
@@ -980,6 +1001,8 @@ class EmployeeCalendarView(APIView):
             is_weekend = weekday >= 5
             rec        = rec_map.get(d)
             leave      = leave_map.get(d)
+            holiday_obj  = holiday_map.get(d)                          # ← moved up, always set
+            holiday_type = holiday_obj.holiday_type if holiday_obj else None
 
             if rec:
                 att_status    = rec.status
@@ -1016,6 +1039,8 @@ class EmployeeCalendarView(APIView):
                         display_status = "PENDING_LEAVE"; summary["pending_leave"] += 1
                     else:
                         display_status = "ON_LEAVE"; summary["on_leave"] += 1
+                elif holiday_obj:
+                    display_status = "HOLIDAY"; summary["holiday"] += 1
                 elif d > today:
                     display_status = "FUTURE"
                 else:
@@ -1046,6 +1071,7 @@ class EmployeeCalendarView(APIView):
                 "working_hours":  working_hours,
                 "notes":          notes,
                 "leave":          leave_info,
+                "holiday_type":   holiday_type,                      # ← always present now
             })
 
         return Response({
@@ -1061,23 +1087,130 @@ class EmployeeCalendarView(APIView):
 
 # ── Clock-in enable (HR grants permission to no-shift employees) ──────────────
 
+# class AttendanceClockInEnableView(APIView):
+#     """
+#     GET  /attendance/enable-clockin/?date=YYYY-MM-DD
+#     POST /attendance/enable-clockin/  { employee, date, enabled }
+#     """
+#     permission_classes = [IsAuthenticated]
+
+#     def get(self, request):
+#         date_str      = request.query_params.get("date")
+#         date_from_str = request.query_params.get("date_from")
+#         date_to_str   = request.query_params.get("date_to")
+
+#         try:
+#             if date_from_str and date_to_str:
+#                 date_from = dt.datetime.strptime(date_from_str, "%Y-%m-%d").date()
+#                 date_to   = dt.datetime.strptime(date_to_str,   "%Y-%m-%d").date()
+#                 entries = AttendanceClockInEnable.objects.filter(
+#                     date__gte=date_from, date__lte=date_to, is_deleted=False
+#                 ).select_related("employee", "employee__department_ref", "enabled_by", "shift_category")
+#             else:
+#                 target_date = dt.datetime.strptime(date_str or str(date.today()), "%Y-%m-%d").date()
+#                 entries = AttendanceClockInEnable.objects.filter(
+#                     date=target_date, is_deleted=False
+#                 ).select_related("employee", "employee__department_ref", "enabled_by", "shift_category")
+#         except ValueError:
+#             return Response({"detail": "Invalid date."}, status=status.HTTP_400_BAD_REQUEST)
+#         entries = AttendanceClockInEnable.objects.filter(
+#             date=target_date, is_deleted=False
+#         ).select_related("employee", "employee__department_ref", "enabled_by", "shift_category")
+
+#         results = []
+#         for e in entries:
+#             emp  = e.employee
+#             dept = emp.department_ref.name if getattr(emp, "department_ref_id", None) else (emp.department or "")
+#             shift = e.shift_category
+#             results.append({
+#                 "id":                  str(e.id),
+#                 "employee_id":         str(emp.id),
+#                 "employee_name":       emp.full_name,
+#                 "employee_code":       emp.employee_code,
+#                 "department":          dept,
+#                 "date":                e.date.isoformat(),
+#                 "enabled":             e.enabled,
+#                 "enabled_by":          e.enabled_by.full_name if e.enabled_by_id else None,
+#                 "shift_category_id":   str(shift.id)         if shift else None,
+#                 "shift_category_name": shift.name            if shift else None,
+#                 "shift_start_time":    shift.start_time.strftime("%H:%M:%S") if shift else None,
+#                 "shift_end_time":      shift.end_time.strftime("%H:%M:%S")   if shift else None,
+#                 "job_type":            e.job_type,
+#             })
+
+#         return Response({"count": len(results), "results": results})
+
+#     def post(self, request):
+#         emp_id     = request.data.get("employee")
+#         enabled    = request.data.get("enabled", True)
+#         shift_id   = request.data.get("shift_category")
+#         job_type   = request.data.get("job_type")
+
+#         # ── NEW: range support ────────────────────────────────────────────
+#         date_from  = request.data.get("date_from")
+#         date_to    = request.data.get("date_to")
+#         single     = request.data.get("date")
+
+#         if date_from and date_to:
+#             start = date.fromisoformat(date_from)
+#             end   = date.fromisoformat(date_to)
+#             dates = []
+#             cur   = start
+#             while cur <= end:
+#                 dates.append(cur)
+#                 cur += timedelta(days=1)
+#         elif single:
+#             dates = [date.fromisoformat(single)]
+#         else:
+#             return Response({"detail": "Provide date or date_from+date_to"}, status=400)
+#         # ─────────────────────────────────────────────────────────────────
+
+#         created = []
+#         for d in dates:
+#             obj, _ = AttendanceClockInEnable.objects.update_or_create(
+#                 employee_id=emp_id,
+#                 date=d,
+#                 defaults={
+#                     "enabled":        enabled,
+#                     "shift_category_id": shift_id or None,
+#                     "job_type":       job_type or None,
+#                     "enabled_by":     request.user,
+#                 },
+#             )
+#             created.append(obj.id)
+
+#         return Response({"created": len(created)}, status=201)
 class AttendanceClockInEnableView(APIView):
-    """
-    GET  /attendance/enable-clockin/?date=YYYY-MM-DD
-    POST /attendance/enable-clockin/  { employee, date, enabled }
-    """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]  # Keycloak handles auth via middleware
 
     def get(self, request):
-        date_str = request.query_params.get("date", str(date.today()))
-        try:
-            target_date = dt.datetime.strptime(date_str, "%Y-%m-%d").date()
-        except ValueError:
-            return Response({"detail": "Invalid date."}, status=status.HTTP_400_BAD_REQUEST)
+        date_from_str = request.query_params.get("date_from")
+        date_to_str   = request.query_params.get("date_to")
+        date_str      = request.query_params.get("date")
 
+        if date_from_str and date_to_str:
+            try:
+                date_from = dt.datetime.strptime(date_from_str, "%Y-%m-%d").date()
+                date_to   = dt.datetime.strptime(date_to_str,   "%Y-%m-%d").date()
+            except ValueError:
+                return Response({"detail": "Invalid date_from or date_to."}, status=status.HTTP_400_BAD_REQUEST)
+        elif date_str:
+            try:
+                date_from = date_to = dt.datetime.strptime(date_str, "%Y-%m-%d").date()
+            except ValueError:
+                return Response({"detail": "Invalid date."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            date_from = date_to = date.today()
+
+        # REPLACE WITH — also prefetch shift_category to avoid N+1:
         entries = AttendanceClockInEnable.objects.filter(
-            date=target_date, is_deleted=False
-        ).select_related("employee", "enabled_by")
+            date_from__lte=date_to, date_to__gte=date_from,
+            is_deleted=False,
+        ).select_related(
+            "employee", "employee__department_ref",
+            "enabled_by", "shift_category",
+        ).order_by("employee__first_name", "date_from")
+
 
         results = []
         for e in entries:
@@ -1089,9 +1222,455 @@ class AttendanceClockInEnableView(APIView):
                 "employee_name": emp.full_name,
                 "employee_code": emp.employee_code,
                 "department":    dept,
-                "date":          e.date.isoformat(),
+                # ✅ FIX: e.date is None now — use date_from/date_to instead
+                "date":          e.date_from.isoformat() if e.date_from else None,
+                "date_from":     e.date_from.isoformat() if e.date_from else None,
+                "date_to":       e.date_to.isoformat()   if e.date_to   else None,
                 "enabled":       e.enabled,
                 "enabled_by":    e.enabled_by.full_name if e.enabled_by_id else None,
+                "shift_category_id":   str(e.shift_category_id) if e.shift_category_id else None,
+                "shift_category_name": e.shift_category.name       if e.shift_category_id else None,
+                "shift_start_time":    e.shift_category.start_time.strftime("%H:%M") if e.shift_category_id else None,
+                "shift_end_time":      e.shift_category.end_time.strftime("%H:%M")   if e.shift_category_id else None,
+                "job_type":      getattr(e, "job_type", None),
+            })
+        return Response({"count": len(results), "results": results})
+
+    def post(self, request):
+        emp_id        = request.data.get("employee")
+        enabled       = request.data.get("enabled", True)
+        shift_id      = request.data.get("shift_category")
+        job_type      = request.data.get("job_type")
+        date_from_str = request.data.get("date_from")
+        date_to_str   = request.data.get("date_to")
+
+        if not emp_id:
+            return Response({"detail": "employee is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not date_from_str or not date_to_str:
+            return Response({"detail": "date_from and date_to are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            date_from = dt.date.fromisoformat(date_from_str)
+            date_to   = dt.date.fromisoformat(date_to_str)
+        except ValueError:
+            return Response({"detail": "Invalid date format. Use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+
+        existing_qs = AttendanceClockInEnable.objects.filter(
+            employee_id=emp_id,
+            date_from=date_from,
+            date_to=date_to,
+            is_deleted=False,
+        ).order_by("-id")
+
+        obj = existing_qs.first()
+
+        if obj:
+            # Soft-delete any duplicate rows beyond the first one
+            dup_ids = list(existing_qs.exclude(pk=obj.pk).values_list("id", flat=True))
+            if dup_ids:
+                AttendanceClockInEnable.objects.filter(id__in=dup_ids).update(is_deleted=True)
+
+            obj.enabled           = bool(enabled)
+            obj.shift_category_id = shift_id or None
+            obj.job_type          = job_type or None
+            obj.enabled_by        = request.user
+            obj.save(update_fields=["enabled", "shift_category_id", "job_type", "enabled_by"])
+        else:
+            obj = AttendanceClockInEnable.objects.create(
+                employee_id=emp_id,
+                date_from=date_from,
+                date_to=date_to,
+                enabled=bool(enabled),
+                shift_category_id=shift_id or None,
+                job_type=job_type or None,
+                enabled_by=request.user,
+            )
+        emp = obj.employee
+        dept = emp.department_ref.name if getattr(emp, "department_ref_id", None) else (emp.department or "")
+        shift = obj.shift_category
+
+        return Response({
+            "id":                  str(obj.id),
+            "employee_id":         str(emp.id),
+            "employee_name":       emp.full_name,
+            "employee_code":       emp.employee_code,
+            "department":          dept,
+            "date_from":           obj.date_from.isoformat(),
+            "date_to":             obj.date_to.isoformat(),
+            "enabled":             obj.enabled,
+            "enabled_by":          obj.enabled_by.full_name if obj.enabled_by_id else None,
+            "shift_category_id":   str(shift.id)   if shift else None,
+            "shift_category_name": shift.name       if shift else None,
+            "shift_start_time":    shift.start_time.strftime("%H:%M") if shift else None,
+            "shift_end_time":      shift.end_time.strftime("%H:%M")   if shift else None,
+            "job_type":            obj.job_type,
+        }, status=status.HTTP_201_CREATED)
+
+    
+class EmployeeShiftView(APIView):
+    """
+    GET   /attendance/employee-shifts/
+    POST  /attendance/employee-shifts/
+    PATCH /attendance/employee-shifts/<pk>/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .models import EmployeeShift
+
+        qs = EmployeeShift.objects.filter(is_deleted=False).select_related(
+            "employee", "employee__department_ref", "shift",
+        ).order_by("-effective_from")
+
+        emp_id = request.query_params.get("employee")
+        if emp_id:
+            qs = qs.filter(employee_id=emp_id)
+
+        results = []
+        for es in qs:
+            emp  = es.employee
+            dept = emp.department_ref.name if getattr(emp, "department_ref_id", None) else (emp.department or "")
+            results.append({
+                "id":              str(es.id),
+                "employee_id":     str(emp.id),
+                "employee_name":   emp.full_name,
+                "employee_code":   emp.employee_code,
+                "department":      dept,
+                "shift_id":        str(es.shift_id),
+                "shift_name":      es.shift.name,
+                "start_time":      es.shift.start_time.strftime("%H:%M:%S"),
+                "end_time":        es.shift.end_time.strftime("%H:%M:%S"),
+                "effective_from":  es.effective_from.isoformat(),
+                "effective_to":    es.effective_to.isoformat() if es.effective_to else None,
+                "job_type":        es.job_type,
+                "employment_type": getattr(emp, "employment_type", None),
+            })
+
+        return Response({"count": len(results), "results": results})
+
+    def post(self, request):
+        from apps.accounts.models import Employee
+        from apps.master.models import ShiftCategory
+        from .models import EmployeeShift
+
+        emp_id   = request.data.get("employee")
+        shift_id = request.data.get("shift")
+        eff_from = request.data.get("effective_from")
+        eff_to   = request.data.get("effective_to")
+        job_type = request.data.get("job_type")
+
+        if not emp_id or not shift_id or not eff_from:
+            return Response(
+                {"detail": "employee, shift, and effective_from are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            emp = Employee.objects.get(id=emp_id, is_deleted=False)
+        except Employee.DoesNotExist:
+            return Response({"detail": "Employee not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            shift = ShiftCategory.objects.get(id=shift_id)
+        except ShiftCategory.DoesNotExist:
+            return Response({"detail": "Shift not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            from_date = dt.datetime.strptime(eff_from, "%Y-%m-%d").date()
+            to_date   = dt.datetime.strptime(eff_to, "%Y-%m-%d").date() if eff_to else None
+        except ValueError:
+            return Response({"detail": "Invalid date format. Use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+
+        es   = EmployeeShift.objects.create(
+            employee=emp, shift=shift,
+            effective_from=from_date, effective_to=to_date,
+            job_type=job_type,
+        )
+        dept = emp.department_ref.name if getattr(emp, "department_ref_id", None) else (emp.department or "")
+
+        return Response({
+            "id":             str(es.id),
+            "employee_id":    str(emp.id),
+            "employee_name":  emp.full_name,
+            "employee_code":  emp.employee_code,
+            "department":     dept,
+            "shift_id":       str(shift.id),
+            "shift_name":     shift.name,
+            "start_time":     shift.start_time.strftime("%H:%M:%S"),
+            "end_time":       shift.end_time.strftime("%H:%M:%S"),
+            "effective_from": es.effective_from.isoformat(),
+            "effective_to":   es.effective_to.isoformat() if es.effective_to else None,
+            "job_type":       es.job_type,
+        }, status=status.HTTP_201_CREATED)
+
+    def patch(self, request, pk=None):
+        from apps.master.models import ShiftCategory
+        from .models import EmployeeShift
+
+        if not pk:
+            return Response({"detail": "pk required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            es = EmployeeShift.objects.select_related("employee", "shift").get(id=pk, is_deleted=False)
+        except EmployeeShift.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        if "shift" in request.data:
+            try:
+                es.shift = ShiftCategory.objects.get(id=request.data["shift"])
+            except ShiftCategory.DoesNotExist:
+                return Response({"detail": "Shift not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if "effective_from" in request.data:
+            es.effective_from = dt.datetime.strptime(request.data["effective_from"], "%Y-%m-%d").date()
+        if "effective_to" in request.data:
+            val = request.data["effective_to"]
+            es.effective_to = dt.datetime.strptime(val, "%Y-%m-%d").date() if val else None
+        if "job_type" in request.data:
+            es.job_type = request.data["job_type"] or None
+
+        es.save()
+
+        emp  = es.employee
+        dept = emp.department_ref.name if getattr(emp, "department_ref_id", None) else (emp.department or "")
+
+        return Response({
+            "id":             str(es.id),
+            "employee_id":    str(emp.id),
+            "employee_name":  emp.full_name,
+            "employee_code":  emp.employee_code,
+            "department":     dept,
+            "shift_id":       str(es.shift_id),
+            "shift_name":     es.shift.name,
+            "start_time":     es.shift.start_time.strftime("%H:%M:%S"),
+            "end_time":       es.shift.end_time.strftime("%H:%M:%S"),
+            "effective_from": es.effective_from.isoformat(),
+            "effective_to":   es.effective_to.isoformat() if es.effective_to else None,
+            "job_type":       es.job_type,
+        })
+# FIND AT BOTTOM OF views.py — REPLACE WITH:
+def is_clockin_allowed_for_no_shift(employee, target_date: date) -> bool:
+    return AttendanceClockInEnable.objects.filter(
+        employee=employee,
+        date_from__lte=target_date,
+        date_to__gte=target_date,
+        enabled=True,
+        is_deleted=False,
+    ).exists()
+
+
+class EmployeeScheduleView(APIView):
+    """
+    GET /attendance/schedule/?employee=<id>&date_from=YYYY-MM-DD&date_to=YYYY-MM-DD
+    Returns per-day shift + job_type + attendance status for the date range.
+    Used by the Job Type & Schedule tab in the frontend.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.accounts.models import Employee
+        from .models import EmployeeShift
+
+        emp_id       = request.query_params.get("employee")
+        date_from_str = request.query_params.get("date_from")
+        date_to_str   = request.query_params.get("date_to")
+
+        if not emp_id:
+            return Response({"detail": "employee is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            emp = Employee.objects.get(id=emp_id, is_deleted=False)
+        except Employee.DoesNotExist:
+            return Response({"detail": "Employee not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        today = date.today()
+        try:
+            date_from = dt.datetime.strptime(date_from_str, "%Y-%m-%d").date() if date_from_str else today.replace(day=1)
+            date_to   = dt.datetime.strptime(date_to_str,   "%Y-%m-%d").date() if date_to_str   else today
+        except ValueError:
+            return Response({"detail": "Invalid date format. Use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Fetch all shift assignments that overlap the requested range
+        shifts = EmployeeShift.objects.filter(
+            employee=emp,
+            is_deleted=False,
+            effective_from__lte=date_to,
+        ).filter(
+            account_models.Q(effective_to__isnull=True) | models.Q(effective_to__gte=date_from)
+        ).select_related("shift").order_by("effective_from")
+
+        # Attendance records for the range
+        att_map = {
+            r.date: r
+            for r in AttendanceRecord.objects.filter(
+                employee=emp,
+                date__gte=date_from,
+                date__lte=date_to,
+                is_deleted=False,
+            )
+        }
+
+        def shift_for_date(d):
+            """Return the EmployeeShift active on date d, or None."""
+            for es in reversed(shifts):  # most recent first
+                if es.effective_from <= d:
+                    if es.effective_to is None or es.effective_to >= d:
+                        return es
+            return None
+
+        results = []
+        cur = date_from
+        while cur <= date_to:
+            es  = shift_for_date(cur)
+            rec = att_map.get(cur)
+
+            results.append({
+                "date":             cur.isoformat(),
+                "shift_id":         str(es.shift_id)        if es else None,
+                "shift_name":       es.shift.name           if es else None,
+                "check_in":         es.shift.start_time.strftime("%H:%M") if es else None,
+                "check_out":        es.shift.end_time.strftime("%H:%M")   if es else None,
+                "job_type":         es.job_type             if es else None,
+                "employment_type":  getattr(emp, "employment_type", None),
+                "status":           rec.status              if rec else None,
+            })
+            cur += dt.timedelta(days=1)
+
+        return Response({"count": len(results), "results": results})
+
+
+class EmployeeMonthlySummaryView(APIView):
+    """
+    HR/Admin: monthly leave + attendance summary for an employee.
+    GET /attendance/employee-summary/?employee=<id>&year=YYYY&month=MM
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.accounts.models import Employee
+
+        emp_id = request.query_params.get("employee")
+        if not emp_id:
+            return Response({"detail": "employee is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        is_hr    = request.user.is_staff or getattr(request.user, "is_superuser", False)
+        hr_perms = getattr(request, "user_permissions", [])
+        can_view = (
+            is_hr
+            or "pmt.hrms.attendance.view" in hr_perms
+            or "pmt.hrms.leave.manage" in hr_perms
+        )
+        if not can_view and str(request.user.id) != emp_id:
+            return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
+
+        today = date.today()
+        try:
+            year  = int(request.query_params.get("year",  today.year))
+            month = int(request.query_params.get("month", today.month))
+        except ValueError:
+            return Response({"detail": "Invalid year/month."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            emp = Employee.objects.get(id=emp_id, is_deleted=False)
+        except Employee.DoesNotExist:
+            return Response({"detail": "Employee not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # ── Attendance counts for the selected month ──
+        records = AttendanceRecord.objects.filter(
+            employee=emp, date__year=year, date__month=month, is_deleted=False
+        )
+        present  = records.filter(status=AttendanceStatus.PRESENT).count()
+        wfh      = records.filter(status=AttendanceStatus.WFH).count()
+        half_day = records.filter(status=AttendanceStatus.HALF_DAY).count()
+        on_leave = records.filter(status=AttendanceStatus.ON_LEAVE).count()
+        absent   = records.filter(status=AttendanceStatus.ABSENT).count()
+
+        attendance = {
+            "present":  present,
+            "on_site":  present,   # "on-site" = days marked Present (non-remote)
+            "wfh":      wfh,
+            "half_day": half_day,
+            "on_leave": on_leave,
+            "absent":   absent,
+        }
+
+        # ── Leave balances (yearly totals) + used within the selected month ──
+        _, last_day = calendar.monthrange(year, month)
+        month_start = date(year, month, 1)
+        month_end   = date(year, month, last_day)
+
+        balances = LeaveBalance.objects.filter(employee=emp, year=year).select_related("leave_type")
+        leave_data = []
+        for b in balances:
+            used_this_month = LeaveRequest.objects.filter(
+                employee=emp, leave_type=b.leave_type,
+                status=LeaveRequestStatus.APPROVED,
+                start_date__lte=month_end, end_date__gte=month_start,
+                is_deleted=False,
+            ).aggregate(t=Sum("days_count"))["t"] or 0
+
+            leave_data.append({
+                "leave_type_id":    str(b.leave_type_id),
+                "leave_type_name":  b.leave_type.name,
+                "leave_type_code":  b.leave_type.code,
+                "leave_type_color": b.leave_type.color,
+                "total_days":       float(b.total_days),
+                "used_days":        float(b.used_days),       # year-to-date used
+                "remaining_days":   b.remaining_days,
+                "used_this_month":  float(used_this_month),
+            })
+
+        return Response({
+            "employee_id":   str(emp.id),
+            "employee_name": emp.full_name,
+            "employee_code": emp.employee_code,
+            "year":  year,
+            "month": month,
+            "attendance":     attendance,
+            "leave_balances": leave_data,
+        })
+
+
+class WFHSettingView(APIView):
+    """
+    GET  /attendance/wfh-settings/?department=&page_size=500
+    POST /attendance/wfh-settings/  { employee, wfh_enabled }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.accounts.models import Employee
+        from django.db.models import Q
+
+        dept = request.query_params.get("department", "").strip()
+
+        emp_qs = Employee.objects.filter(
+            is_active=True, is_deleted=False,
+        ).select_related("department_ref", "wfh_setting", "wfh_setting__updated_by")
+
+        if dept:
+            emp_qs = emp_qs.filter(
+                Q(department_ref__name__iexact=dept) |
+                Q(department__iexact=dept)
+            )
+
+        try:
+            page_size = min(int(request.query_params.get("page_size", 100)), 1000)
+        except ValueError:
+            page_size = 100
+
+        results = []
+        for emp in emp_qs[:page_size]:
+            dept_name = emp.department_ref.name if getattr(emp, "department_ref_id", None) else (emp.department or "")
+            setting   = getattr(emp, "wfh_setting", None)
+            results.append({
+                "id":            str(setting.id)              if setting else None,
+                "employee_id":   str(emp.id),
+                "employee_name": emp.full_name,
+                "employee_code": emp.employee_code,
+                "department":    dept_name,
+                "wfh_enabled":   setting.wfh_enabled          if setting else False,
+                "updated_by":    setting.updated_by.full_name if (setting and setting.updated_by_id) else None,
             })
 
         return Response({"count": len(results), "results": results})
@@ -1099,49 +1678,314 @@ class AttendanceClockInEnableView(APIView):
     def post(self, request):
         from apps.accounts.models import Employee
 
-        employee_id = request.data.get("employee")
-        date_str    = request.data.get("date")
-        enabled     = request.data.get("enabled", True)
+        emp_id      = request.data.get("employee")
+        wfh_enabled = request.data.get("wfh_enabled", False)
 
-        if not employee_id or not date_str:
-            return Response({"detail": "employee and date are required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not emp_id:
+            return Response({"detail": "employee is required."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            emp = Employee.objects.get(id=employee_id, is_deleted=False)
+            emp = Employee.objects.get(id=emp_id, is_deleted=False)
         except Employee.DoesNotExist:
             return Response({"detail": "Employee not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        try:
-            target_date = dt.datetime.strptime(date_str, "%Y-%m-%d").date()
-        except ValueError:
-            return Response({"detail": "Invalid date. Use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
-
-        entry, created = AttendanceClockInEnable.objects.update_or_create(
+        setting, _ = WFHSetting.objects.update_or_create(
             employee=emp,
-            date=target_date,
-            defaults={"enabled": bool(enabled), "enabled_by": request.user, "is_deleted": False},
+            defaults={"wfh_enabled": bool(wfh_enabled), "updated_by": request.user},
         )
 
-        dept = emp.department_ref.name if getattr(emp, "department_ref_id", None) else (emp.department or "")
+        dept_name = emp.department_ref.name if getattr(emp, "department_ref_id", None) else (emp.department or "")
+        return Response({
+            "id":            str(setting.id),
+            "employee_id":   str(emp.id),
+            "employee_name": emp.full_name,
+            "employee_code": emp.employee_code,
+            "department":    dept_name,
+            "wfh_enabled":   setting.wfh_enabled,
+            "updated_by":    request.user.full_name,
+        })
 
-        return Response(
-            {
-                "id":            str(entry.id),
-                "employee_id":   str(emp.id),
-                "employee_name": emp.full_name,
-                "employee_code": emp.employee_code,
-                "department":    dept,
-                "date":          entry.date.isoformat(),
-                "enabled":       entry.enabled,
-                "enabled_by":    request.user.full_name,
-                "created":       created,
-            },
-            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+
+class WFHRequestView(APIView):
+    """
+    Employee: GET/POST their own WFH requests.
+    GET  /attendance/wfh-requests/
+    POST /attendance/wfh-requests/  { requested_date, reason }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = WFHRequest.objects.filter(
+            employee=request.user, is_deleted=False
+        ).order_by("-created_at")
+
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+
+        results = []
+        for r in qs:
+            results.append({
+                "id":             str(r.id),
+                "employee_id":    str(r.employee_id),
+                "employee_name":  r.employee.full_name,
+                "employee_code":  r.employee.employee_code,
+                "department":     r.employee.department_ref.name if getattr(r.employee, "department_ref_id", None) else "",
+                "requested_date": r.requested_date.isoformat(),
+                "reason":         r.reason,
+                "status":         r.status,
+                "rejection_note": r.rejection_note,
+                "created_at":     r.created_at.isoformat(),
+            })
+
+        return Response({"count": len(results), "results": results, "pending_count": sum(1 for r in results if r["status"] == "PENDING")})
+
+    def post(self, request):
+        requested_date = request.data.get("requested_date")
+        reason         = request.data.get("reason", "")
+
+        if not requested_date:
+            return Response({"detail": "requested_date is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            req_date = dt.datetime.strptime(requested_date, "%Y-%m-%d").date()
+        except ValueError:
+            return Response({"detail": "Invalid date format."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if req_date <= date.today():
+            return Response({"detail": "WFH requests must be for a future date."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check WFH is enabled for this employee
+        setting = getattr(request.user, "wfh_setting", None)
+        if not setting or not setting.wfh_enabled:
+            return Response(
+                {"detail": "WFH requests are not enabled for your account. Contact HR."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        r, created = WFHRequest.objects.get_or_create(
+            employee=request.user,
+            requested_date=req_date,
+            defaults={"reason": reason, "status": "PENDING"},
+        )
+        if not created:
+            return Response({"detail": "A WFH request already exists for this date."}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            "id":             str(r.id),
+            "requested_date": r.requested_date.isoformat(),
+            "reason":         r.reason,
+            "status":         r.status,
+            "created_at":     r.created_at.isoformat(),
+        }, status=status.HTTP_201_CREATED)
+
+
+class WFHRequestAdminView(APIView):
+    """
+    HR: GET all WFH requests + approve/reject.
+    GET /attendance/wfh-requests/admin/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = WFHRequest.objects.filter(is_deleted=False).select_related(
+            "employee", "employee__department_ref", "reviewed_by"
+        ).order_by("-created_at")
+
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+
+        results = []
+        for r in qs:
+            results.append({
+                "id":             str(r.id),
+                "employee_id":    str(r.employee_id),
+                "employee_name":  r.employee.full_name,
+                "employee_code":  r.employee.employee_code,
+                "department":     r.employee.department_ref.name if getattr(r.employee, "department_ref_id", None) else "",
+                "requested_date": r.requested_date.isoformat(),
+                "reason":         r.reason,
+                "status":         r.status,
+                "rejection_note": r.rejection_note,
+                "created_at":     r.created_at.isoformat(),
+            })
+
+        pending_count = WFHRequest.objects.filter(status="PENDING", is_deleted=False).count()
+        return Response({"count": len(results), "results": results, "pending_count": pending_count})
+
+
+class WFHRequestReviewView(APIView):
+    """
+    HR: POST /attendance/wfh-requests/<id>/review/  { action: APPROVE|REJECT, rejection_note }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            r = WFHRequest.objects.get(id=pk, is_deleted=False)
+        except WFHRequest.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        action = request.data.get("action")
+        if action not in ("APPROVE", "REJECT"):
+            return Response({"detail": "action must be APPROVE or REJECT."}, status=status.HTTP_400_BAD_REQUEST)
+
+        r.status         = "APPROVED" if action == "APPROVE" else "REJECTED"
+        r.reviewed_by    = request.user
+        r.rejection_note = request.data.get("rejection_note", "")
+        r.save(update_fields=["status", "reviewed_by", "rejection_note"])
+
+        return Response({"id": str(r.id), "status": r.status})
+
+
+class ShiftChangeRequestView(APIView):
+    """
+    Employee: GET/POST their shift change requests.
+    GET  /attendance/shift-change-requests/
+    POST /attendance/shift-change-requests/  { request_type, requested_date, requested_shift, reason }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = ShiftChangeRequest.objects.filter(
+            employee=request.user, is_deleted=False
+        ).select_related("requested_shift").order_by("-created_at")
+
+        results = []
+        for r in qs:
+            results.append({
+                "id":              str(r.id),
+                "request_type":    r.request_type,
+                "requested_date":  r.requested_date.isoformat() if r.requested_date else None,
+                "shift_name":      r.requested_shift.name,
+                "shift_id":        str(r.requested_shift_id),
+                "reason":          r.reason,
+                "status":          r.status,
+                "rejection_note":  r.rejection_note,
+                "created_at":      r.created_at.isoformat(),
+            })
+
+        return Response({"count": len(results), "results": results})
+
+    def post(self, request):
+        request_type   = request.data.get("request_type", "ONE_TIME")
+        
+        # ← Frontend sends TEMPORARY, backend uses ONE_TIME
+        if request_type == "TEMPORARY":
+            request_type = "ONE_TIME"
+        
+        requested_date = request.data.get("requested_date")
+        shift_id       = request.data.get("requested_shift")
+        reason         = request.data.get("reason", "")
+        # ... rest unchanged
+
+        if not shift_id:
+            return Response({"detail": "requested_shift is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.master.models import ShiftCategory
+        try:
+            shift = ShiftCategory.objects.get(id=shift_id)
+        except ShiftCategory.DoesNotExist:
+            return Response({"detail": "Shift not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        req_date = None
+        if request_type == "ONE_TIME":
+            if not requested_date:
+                return Response({"detail": "requested_date is required for ONE_TIME requests."}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                req_date = dt.datetime.strptime(requested_date, "%Y-%m-%d").date()
+            except ValueError:
+                return Response({"detail": "Invalid date format."}, status=status.HTTP_400_BAD_REQUEST)
+
+        r = ShiftChangeRequest.objects.create(
+            employee=request.user,
+            request_type=request_type,
+            requested_date=req_date,
+            requested_shift=shift,
+            reason=reason,
+            status="PENDING",
         )
 
+        return Response({
+            "id":             str(r.id),
+            "request_type":   r.request_type,
+            "requested_date": r.requested_date.isoformat() if r.requested_date else None,
+            "shift_name":     shift.name,
+            "status":         r.status,
+            "created_at":     r.created_at.isoformat(),
+        }, status=status.HTTP_201_CREATED)
 
-def is_clockin_allowed_for_no_shift(employee, target_date: date) -> bool:
-    """Returns True if a no-shift employee has been granted clock-in permission for the given date."""
-    return AttendanceClockInEnable.objects.filter(
-        employee=employee, date=target_date, enabled=True, is_deleted=False,
-    ).exists()
+
+class ShiftChangeRequestAdminView(APIView):
+    """
+    HR: GET all shift change requests.
+    GET /attendance/shift-change-requests/admin/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = ShiftChangeRequest.objects.filter(is_deleted=False).select_related(
+            "employee", "requested_shift", "reviewed_by"
+        ).order_by("-created_at")
+
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+
+        results = []
+        for r in qs:
+            results.append({
+                "id":             str(r.id),
+                "employee_id":    str(r.employee_id),
+                "employee_name":  r.employee.full_name,
+                "employee_code":  r.employee.employee_code,
+                "request_type":   r.request_type,
+                "requested_date": r.requested_date.isoformat() if r.requested_date else None,
+                "shift_name":     r.requested_shift.name,
+                "shift_id":       str(r.requested_shift_id),
+                "reason":         r.reason,
+                "status":         r.status,
+                "rejection_note": r.rejection_note,
+                "created_at":     r.created_at.isoformat(),
+            })
+
+        pending_count = ShiftChangeRequest.objects.filter(status="PENDING", is_deleted=False).count()
+        return Response({"count": len(results), "results": results, "pending_count": pending_count})
+
+
+class ShiftChangeRequestReviewView(APIView):
+    """
+    HR: POST /attendance/shift-change-requests/<id>/review/
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            r = ShiftChangeRequest.objects.get(id=pk, is_deleted=False)
+        except ShiftChangeRequest.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        action = request.data.get("action")
+        if action not in ("APPROVE", "REJECT"):
+            return Response({"detail": "action must be APPROVE or REJECT."}, status=status.HTTP_400_BAD_REQUEST)
+
+        r.status         = "APPROVED" if action == "APPROVE" else "REJECTED"
+        r.reviewed_by    = request.user
+        r.rejection_note = request.data.get("rejection_note", "")
+        r.save(update_fields=["status", "reviewed_by", "rejection_note"])
+
+        # If approved and PERMANENT, update the employee's active shift assignment
+        if r.status == "APPROVED" and r.request_type == "PERMANENT":
+            from .models import EmployeeShift
+            EmployeeShift.objects.filter(
+                employee=r.employee, effective_to__isnull=True, is_deleted=False
+            ).update(effective_to=date.today())
+            EmployeeShift.objects.create(
+                employee=r.employee,
+                shift=r.requested_shift,
+                effective_from=date.today(),
+                effective_to=None,
+            )
+
+        return Response({"id": str(r.id), "status": r.status})

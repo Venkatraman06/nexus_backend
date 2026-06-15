@@ -662,3 +662,66 @@ def ticket_hierarchy(ticket: Ticket) -> dict:
         "epic_title": epic_title,
         "story_title": story_title,
     }
+
+
+def get_attendance_and_leave_for_week(employee, sunday: date, saturday: date) -> dict:
+    """
+    Returns attendance + leave info for each day of the week.
+    Used by timesheet view to show check-in/out, holidays, leave details.
+    """
+    from apps.attendance.models import LeaveRequest, LeaveRequestStatus
+    from apps.master.models import Holiday
+
+    records = {
+        r.date: r
+        for r in AttendanceRecord.objects.filter(
+            employee=employee,
+            date__range=[sunday, saturday],
+            is_deleted=False,
+        )
+    }
+
+    holidays = {
+        h.date: h
+        for h in Holiday.objects.filter(
+            date__range=[sunday, saturday],
+            is_active=True,
+        )
+    }
+
+    leave_requests = {}
+    for lr in LeaveRequest.objects.filter(
+        employee=employee,
+        status=LeaveRequestStatus.APPROVED,
+        start_date__lte=saturday,
+        end_date__gte=sunday,
+        is_deleted=False,
+    ).select_related("leave_type"):
+        d = lr.start_date
+        while d <= lr.end_date:
+            if sunday <= d <= saturday:
+                leave_requests[d] = lr
+            d += timedelta(days=1)
+
+    result = {}
+    for i in range(7):
+        d = sunday + timedelta(days=i)
+        rec = records.get(d)
+        holiday = holidays.get(d)
+        leave = leave_requests.get(d)
+
+        result[str(d)] = {
+            "check_in":          rec.check_in.strftime("%H:%M")  if rec and rec.check_in  else None,
+            "check_out":         rec.check_out.strftime("%H:%M") if rec and rec.check_out else None,
+            "working_hours":     float(rec.working_hours)        if rec else 0.0,
+            "attendance_status": rec.status                      if rec else None,
+            "is_holiday":        bool(holiday),
+            "holiday_name":      holiday.name                    if holiday else None,
+            "holiday_type":      holiday.holiday_type            if holiday else None,
+            "is_on_leave":       bool(leave),
+            "leave_type_name":   leave.leave_type.name           if leave else None,
+            "leave_type_code":   leave.leave_type.code           if leave else None,
+            "leave_is_paid":     leave.leave_type.is_paid        if leave else None,
+            "leave_reason":      leave.reason                    if leave else None,
+        }
+    return result
