@@ -8,7 +8,7 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
+from django.http import HttpResponse
 from apps.allocation.services import CapacityService
 from apps.common.permissions import HasKeycloakPermission, IsAuthenticated
 from apps.workitems.models import WorkLog
@@ -44,7 +44,11 @@ from .services import (
     reject_timesheet,
     submit_timesheet,
     week_bounds,
-    is_current_week,
+    is_current_week,  team_aggregate,
+        discrepancy_flags,
+        export_timesheet_csv,
+        export_team_timesheet_csv,
+        get_attendance_and_leave_for_week,
 )
 from .models import TimesheetConfig
 
@@ -495,3 +499,264 @@ class TimesheetConfigView(APIView):
         ser.is_valid(raise_exception=True)
         ser.save(updated_by=request.user)
         return Response(ser.data)
+
+
+class AdminTimesheetWeekView(APIView):
+    """
+    Same as MyTimesheetWeekView but lets an admin/manager pass ?employee=<id>
+    to view any employee's timesheet for a given week.
+    Falls back to the logged-in user if no employee param is given.
+    """
+    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    required_permission = "pmt.project.timesheet.approve"
+ 
+    def get(self, request):
+        from apps.accounts.models import Employee
+ 
+        employee_id = request.query_params.get("employee")
+        week_start_str = request.query_params.get("week_start")
+        anchor = date.fromisoformat(week_start_str) if week_start_str else date.today()
+        sunday, saturday = week_bounds(anchor)
+ 
+        if employee_id:
+            employee = Employee.objects.filter(id=employee_id, is_deleted=False).first()
+            if not employee:
+                return Response({"detail": "Employee not found."}, status=404)
+            # Check reviewer can see this employee
+            perms = _user_perms(request)
+            if not (request.user.is_staff or getattr(request.user, "is_superuser", False)
+                    or "pmt.project.timesheet.approve" in perms):
+                return Response({"detail": "Permission denied."}, status=403)
+        else:
+            employee = request.user
+ 
+        weekly = get_or_create_weekly_timesheet(employee, anchor)
+ 
+        logs = WorkLog.objects.filter(
+            employee=employee,
+            is_deleted=False,
+            log_date__range=[sunday, saturday],
+        ).select_related(
+            "ticket__project", "ticket__parent", "weekly_timesheet",
+        ).order_by("log_date", "created_at")
+ 
+        loggable_dates = set(get_loggable_dates(employee, sunday, saturday))
+        current_week = is_current_week(anchor)
+        week_editable = (
+            current_week
+            and weekly.status in (TimesheetStatus.DRAFT, TimesheetStatus.REJECTED)
+        )
+        days = []
+        daily_cap = float(get_daily_capacity())
+ 
+        for i in range(7):
+            d = sunday + timedelta(days=i)
+            day_logs = [l for l in logs if l.log_date == d]
+            day_total = sum(float(l.hours) for l in day_logs)
+            is_weekend = d.weekday() >= 5
+            cap = 0.0 if is_weekend else daily_cap
+            can_log = week_editable and d in loggable_dates and employee.id == request.user.id
+            days.append({
+                "date": str(d),
+                "day_name": d.strftime("%A"),
+                "total_hours": round(day_total, 2),
+                "capacity": cap,
+                "over_capacity": cap > 0 and day_total > cap,
+                "log_count": len(day_logs),
+                "can_log": can_log,
+                "attendance_hint": None,
+                "is_weekend": is_weekend,
+            })
+ 
+        attendance_map = get_attendance_and_leave_for_week(employee, sunday, saturday)
+        discrepancies = discrepancy_flags(employee, sunday, saturday)
+ 
+        for day in days:
+            att = attendance_map.get(day["date"], {})
+            day["check_in"]          = att.get("check_in")
+            day["check_out"]         = att.get("check_out")
+            day["working_hours"]     = att.get("working_hours", 0.0)
+            day["attendance_status"] = att.get("attendance_status")
+            day["is_holiday"]        = att.get("is_holiday", False)
+            day["holiday_name"]      = att.get("holiday_name")
+            day["holiday_type"]      = att.get("holiday_type")
+            day["is_on_leave"]       = att.get("is_on_leave", False)
+            day["leave_type_name"]   = att.get("leave_type_name")
+            day["leave_type_code"]   = att.get("leave_type_code")
+            day["leave_is_paid"]     = att.get("leave_is_paid")
+            day["leave_reason"]      = att.get("leave_reason")
+ 
+        payload = {
+            "weekly_timesheet": WeeklyTimesheetSerializer(weekly).data,
+            "days": days,
+            "logs": WorkLogDetailSerializer(logs, many=True).data,
+            "daily_capacity": get_daily_capacity(),
+            "is_editable": False,          # Admin view is always read-only
+            "is_current_week": current_week,
+            "attendance_map": attendance_map,
+            "discrepancies": discrepancies,
+            "viewed_employee": {
+                "id": str(employee.id),
+                "name": employee.full_name,
+            },
+        }
+        return Response(payload)
+ 
+ 
+# ── Team aggregate ─────────────────────────────────────────────────────────────
+ 
+class TeamAggregateView(APIView):
+    """
+    Returns per-employee hours logged vs expected for a given week.
+    Supports ?week_start=YYYY-MM-DD and ?department=<id> filters.
+    """
+    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    required_permission = "pmt.project.timesheet.approve"
+ 
+    def get(self, request):
+        week_start_str = request.query_params.get("week_start")
+        department_id = request.query_params.get("department")
+        anchor = date.fromisoformat(week_start_str) if week_start_str else date.today()
+ 
+        data = team_aggregate(
+            manager=request.user,
+            week_start=anchor,
+            department_id=department_id,
+        )
+        return Response(data)
+ 
+ 
+# ── Discrepancy flags for a single employee ────────────────────────────────────
+ 
+class DiscrepancyView(APIView):
+    """
+    Returns attendance vs logged hour discrepancies for a given employee/week.
+    ?employee=<id>&week_start=YYYY-MM-DD
+    """
+    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    required_permission = "pmt.project.timesheet.approve"
+ 
+    def get(self, request):
+        from apps.accounts.models import Employee
+ 
+        employee_id = request.query_params.get("employee")
+        week_start_str = request.query_params.get("week_start")
+        anchor = date.fromisoformat(week_start_str) if week_start_str else date.today()
+        sunday, saturday = week_bounds(anchor)
+ 
+        if employee_id:
+            employee = Employee.objects.filter(id=employee_id, is_deleted=False).first()
+            if not employee:
+                return Response({"detail": "Employee not found."}, status=404)
+        else:
+            employee = request.user
+ 
+        flags = discrepancy_flags(employee, sunday, saturday)
+        return Response({"discrepancies": flags, "count": len(flags)})
+ 
+ 
+# ── Export: single employee CSV ────────────────────────────────────────────────
+ 
+class TimesheetExportView(APIView):
+    """
+    Returns a CSV of the logged-in user's work logs for a given week.
+    ?week_start=YYYY-MM-DD  (defaults to current week)
+    ?employee=<id>  (admin only — view any employee's export)
+    """
+    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    required_permission = "pmt.project.timesheet.view"
+ 
+    def get(self, request):
+        from apps.accounts.models import Employee
+ 
+        employee_id = request.query_params.get("employee")
+        week_start_str = request.query_params.get("week_start")
+        anchor = date.fromisoformat(week_start_str) if week_start_str else date.today()
+        sunday, _ = week_bounds(anchor)
+ 
+        if employee_id and employee_id != str(request.user.id):
+            perms = _user_perms(request)
+            if not (request.user.is_staff or "pmt.project.timesheet.approve" in perms):
+                return Response({"detail": "Permission denied."}, status=403)
+            employee = Employee.objects.filter(id=employee_id, is_deleted=False).first()
+            if not employee:
+                return Response({"detail": "Employee not found."}, status=404)
+        else:
+            employee = request.user
+ 
+        csv_content = export_timesheet_csv(employee, sunday)
+        filename = f"timesheet_{employee.full_name.replace(' ', '_')}_{sunday}.csv"
+ 
+        response = HttpResponse(csv_content, content_type="text/csv")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+ 
+ 
+# ── Export: team aggregate CSV ─────────────────────────────────────────────────
+ 
+class TeamExportView(APIView):
+    """
+    Returns a CSV of team aggregate hours for a given week.
+    ?week_start=YYYY-MM-DD&department=<id>
+    """
+    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    required_permission = "pmt.project.timesheet.approve"
+ 
+    def get(self, request):
+        week_start_str = request.query_params.get("week_start")
+        anchor = date.fromisoformat(week_start_str) if week_start_str else date.today()
+        sunday, _ = week_bounds(anchor)
+ 
+        csv_content = export_team_timesheet_csv(request.user, sunday)
+        filename = f"team_timesheet_{sunday}.csv"
+ 
+        response = HttpResponse(csv_content, content_type="text/csv")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+ 
+ 
+# ── Request Changes (soft reject with comment) ────────────────────────────────
+ 
+class RequestChangesView(APIView):
+    """
+    Like reject but semantically 'needs revision'. Sets status to REJECTED
+    with a comment so the employee knows what to fix.
+    """
+    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    required_permission = "pmt.project.timesheet.approve"
+ 
+    def post(self, request):
+        ser = ReviewTimesheetSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+ 
+        weekly = WeeklyTimesheet.objects.filter(
+            id=ser.validated_data["timesheet_id"], is_deleted=False,
+        ).first()
+        if not weekly:
+            return Response({"detail": "Not found."}, status=404)
+ 
+        comment = ser.validated_data.get("comment", "").strip()
+        if not comment:
+            return Response(
+                {"detail": "A comment explaining the required changes is mandatory."},
+                status=400,
+            )
+ 
+        weekly = reject_timesheet(
+            weekly, request.user, comment, _user_perms(request),
+        )
+        # Tag the review log entry as REQUEST_CHANGES for audit trail
+        from .models import TimesheetReviewLog
+        TimesheetReviewLog.objects.filter(
+            weekly_timesheet=weekly,
+            action="REJECT",
+        ).order_by("-created_at").first()
+        # Update latest log action label
+        log = TimesheetReviewLog.objects.filter(
+            weekly_timesheet=weekly,
+        ).order_by("-created_at").first()
+        if log and log.action == "REJECT":
+            log.action = "REQUEST_CHANGES"
+            log.save(update_fields=["action"])
+ 
+        return Response(WeeklyTimesheetSerializer(weekly).data)

@@ -18,6 +18,12 @@ from .views import (
     TimesheetConfigView,
     TeamTimesheetView,
     UtilizationReportView,
+    AdminTimesheetWeekView,
+    TeamAggregateView,
+    TimesheetExportView,
+    TeamExportView,
+    DiscrepancyView,
+    RequestChangesView,
 )
 
 urlpatterns = [
@@ -43,4 +49,10 @@ urlpatterns = [
 
     # Legacy team endpoint
     path("timesheets/team/", TeamTimesheetView.as_view(), name="team-timesheet"),
+    path("timesheets/admin/week/",         AdminTimesheetWeekView.as_view(),  name="admin-timesheet-week"),
+    path("timesheets/team/aggregate/",     TeamAggregateView.as_view(),       name="team-aggregate"),
+    path("timesheets/export/",             TimesheetExportView.as_view(),     name="timesheet-export"),
+    path("timesheets/team/export/",        TeamExportView.as_view(),          name="team-export"),
+    path("timesheets/discrepancy/",        DiscrepancyView.as_view(),         name="timesheet-discrepancy"),
+    path("timesheets/reporting/request-changes/", RequestChangesView.as_view(), name="reporting-request-changes"),
 ]

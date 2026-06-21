@@ -725,3 +725,196 @@ def get_attendance_and_leave_for_week(employee, sunday: date, saturday: date) ->
             "leave_reason":      leave.reason                    if leave else None,
         }
     return result
+
+def team_aggregate(manager=None, week_start: date | None = None, department_id=None) -> list[dict]:
+    """
+    Returns per-employee hours logged vs expected for a given week,
+    optionally filtered by department. Used by the team aggregate panel.
+    """
+    from apps.accounts.models import Employee
+ 
+    sunday, saturday = week_bounds(week_start or date.today())
+ 
+    qs = Employee.objects.filter(is_active=True, is_deleted=False)
+ 
+    if department_id:
+        qs = qs.filter(department_id=department_id)
+ 
+    if manager and not (manager.is_staff or getattr(manager, "is_superuser", False)):
+        managed = managed_project_ids(manager)
+        allocated_emp_ids = (
+            Allocation.objects.filter(
+                project_id__in=managed,
+                is_deleted=False,
+                start_date__lte=saturday,
+            )
+            .filter(Q(end_date__isnull=True) | Q(end_date__gte=sunday))
+            .values_list("employee_id", flat=True)
+            .distinct()
+        )
+        qs = qs.filter(id__in=allocated_emp_ids)
+ 
+    results = []
+    for emp in qs:
+        ts = WeeklyTimesheet.objects.filter(
+            employee=emp,
+            week_start=sunday,
+            is_deleted=False,
+        ).first()
+ 
+        logged = float(ts.total_hours) if ts else 0.0
+        expected = float(ts.expected_hours) if ts else float(get_daily_capacity() * 5)
+        ts_status = ts.status if ts else "MISSING"
+ 
+        results.append({
+            "employee_id": str(emp.id),
+            "employee_name": emp.full_name,
+            "department": emp.department if emp.department else None,
+            "timesheet_id": str(ts.id) if ts else None,
+            "status": ts_status,
+            "total_hours": logged,
+            "expected_hours": expected,
+            "hours_behind": max(0, round(expected - logged, 2)),
+            "utilization_pct": round((logged / expected * 100) if expected > 0 else 0, 1),
+        })
+ 
+    results.sort(key=lambda r: r["hours_behind"], reverse=True)
+    return results
+ 
+ 
+# ── New: Discrepancy flags ─────────────────────────────────────────────────────
+ 
+def discrepancy_flags(employee, sunday: date, saturday: date) -> list[dict]:
+    """
+    Returns days where attendance working_hours and timesheet logged hours
+    diverge significantly (>1h gap). Used for HR/PM follow-up highlighting.
+    """
+    from apps.attendance.models import AttendanceRecord
+ 
+    attendance_records = {
+        r.date: r
+        for r in AttendanceRecord.objects.filter(
+            employee=employee,
+            date__range=[sunday, saturday],
+            is_deleted=False,
+            check_in__isnull=False,
+            check_out__isnull=False,
+        )
+    }
+ 
+    logs_by_date: dict[date, float] = {}
+    for wl in WorkLog.objects.filter(
+        employee=employee,
+        log_date__range=[sunday, saturday],
+        is_deleted=False,
+    ):
+        logs_by_date[wl.log_date] = logs_by_date.get(wl.log_date, 0.0) + float(wl.hours)
+ 
+    flags = []
+    for d, rec in attendance_records.items():
+        working = float(rec.working_hours or 0)
+        logged = logs_by_date.get(d, 0.0)
+ 
+        if working <= 0:
+            continue
+ 
+        gap = abs(working - logged)
+        if gap < 1.0:
+            continue
+ 
+        if logged == 0:
+            flag_type = "no_log"
+            message = f"Attended {working}h but logged 0h"
+        elif logged > working + 1.0:
+            flag_type = "over_logged"
+            message = f"Logged {logged}h exceeds attendance {working}h"
+        else:
+            flag_type = "under_logged"
+            message = f"Attended {working}h but only logged {logged}h"
+ 
+        flags.append({
+            "date": str(d),
+            "day_name": d.strftime("%A"),
+            "working_hours": working,
+            "logged_hours": logged,
+            "gap": round(gap, 2),
+            "flag_type": flag_type,
+            "message": message,
+        })
+ 
+    return sorted(flags, key=lambda x: x["date"])
+ 
+ 
+# ── New: CSV export ────────────────────────────────────────────────────────────
+ 
+def export_timesheet_csv(employee, week_start: date | None = None) -> str:
+    """
+    Returns a CSV string of work logs for the given employee and week.
+    Used by the export endpoint.
+    """
+    import csv
+    import io
+ 
+    sunday, saturday = week_bounds(week_start or date.today())
+ 
+    logs = WorkLog.objects.filter(
+        employee=employee,
+        log_date__range=[sunday, saturday],
+        is_deleted=False,
+    ).select_related("ticket__project").order_by("log_date", "created_at")
+ 
+    output = io.StringIO()
+    writer = csv.writer(output)
+ 
+    writer.writerow([
+        "Date", "Day", "Project", "Ticket ID", "Ticket Title",
+        "Type", "Category", "Hours", "Description", "Remarks",
+    ])
+ 
+    for log in logs:
+        writer.writerow([
+            str(log.log_date),
+            log.log_date.strftime("%A"),
+            log.ticket.project.name if log.ticket and log.ticket.project else "",
+            log.ticket.ticket_id if log.ticket else "",
+            log.ticket.title if log.ticket else "",
+            log.ticket.type if log.ticket else "",
+            log.category,
+            float(log.hours),
+            log.description or "",
+            log.remarks or "",
+        ])
+ 
+    return output.getvalue()
+ 
+ 
+def export_team_timesheet_csv(manager, week_start: date | None = None) -> str:
+    """
+    Returns a CSV string of team aggregate for the given week.
+    """
+    import csv
+    import io
+ 
+    sunday, _ = week_bounds(week_start or date.today())
+    rows = team_aggregate(manager, sunday)
+ 
+    output = io.StringIO()
+    writer = csv.writer(output)
+ 
+    writer.writerow([
+        "Employee", "Department", "Status",
+        "Logged Hours", "Expected Hours", "Hours Behind", "Utilization %",
+    ])
+ 
+    for r in rows:
+        writer.writerow([
+            r["employee_name"],
+            r["department"] or "",
+            r["status"],
+            r["total_hours"],
+            r["expected_hours"],
+            r["hours_behind"],
+            r["utilization_pct"],
+        ])
+ 
+    return output.getvalue()
