@@ -120,6 +120,8 @@
   {"name": "pmt.crm.followup.delete",     "description": "Delete follow-up records",               "category": "CRM & Finance"},
   {"name": "pmt.crm.followup.transition", "description": "Transition follow-up workflow states",   "category": "CRM & Finance"},
 
+  {"name": "pmt.workspace.calendar.view",   "description": "View workspace calendar",                "category": "Workspace"},
+
   {"name": "pmt.social_feed.view",       "description": "View social feed posts",               "category": "Social Feed"},
   {"name": "pmt.social_feed.create",     "description": "Create social feed posts",              "category": "Social Feed"},
   {"name": "pmt.social_feed.update",     "description": "Update social feed posts",              "category": "Social Feed"},

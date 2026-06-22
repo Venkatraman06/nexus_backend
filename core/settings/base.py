@@ -44,6 +44,8 @@ PROJECT_APPS = [
     "apps.finance",
     "apps.expenses",
     "apps.followups",
+    "apps.todos",
+    "apps.workspace",
     "apps.social_feed",
     "packages.workflow",
 ]

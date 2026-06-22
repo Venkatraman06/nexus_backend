@@ -79,6 +79,7 @@
     "pmt.crm.followup.update",
     "pmt.crm.followup.delete",
     "pmt.crm.followup.transition",
+    "pmt.workspace.calendar.view",
     "pmt.social_feed.view",
     "pmt.social_feed.create",
     "pmt.role.view"
@@ -102,6 +103,7 @@
     "pmt.crm.followup.create",
     "pmt.crm.followup.update",
     "pmt.crm.followup.transition",
+    "pmt.workspace.calendar.view",
     "pmt.social_feed.view",
     "pmt.social_feed.create"
   ]

@@ -18,6 +18,11 @@ class StandardPagination(PageNumberPagination):
             "results": data,
         })
 
+
+class DefaultListPagination(StandardPagination):
+    """Default page size for list views (follow-ups, todos, etc.)."""
+    page_size = 10
+
     def get_paginated_response_schema(self, schema):
         return {
             "type": "object",

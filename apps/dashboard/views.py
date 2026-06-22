@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 from django.db.models import Sum, Count, Q, Avg
+from django.contrib.contenttypes.models import ContentType
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -14,6 +15,7 @@ from apps.common.permissions import IsAuthenticated, HasKeycloakPermission
 from apps.projects.models import Project
 from apps.tickets.models import Ticket
 from apps.workitems.models import WorkLog
+from packages.workflow.models import State as WorkflowState
 from apps.payroll.models import Payroll
 from apps.timesheets.models import WeeklyTimesheet
 from apps.common.constants import TimesheetStatus
@@ -114,7 +116,7 @@ class PMODashboardView(APIView):
         year = int(request.query_params.get("year", today.year))
         month = int(request.query_params.get("month", today.month))
 
-        active_projects_qs = Project.objects.filter(is_deleted=False, is_active=True)
+        active_projects_qs = Project.objects.filter(is_deleted=False).in_active_business()
         due_tracking_qs = active_projects_qs.eligible_for_due_tracking()
         portfolio = _portfolio_projects(due_tracking_qs, today, year, month)
         health_summary = portfolio["summary"]
@@ -387,12 +389,45 @@ class EmployeeDashboardView(APIView):
                 "title":        t.title,
                 "type":         t.type,
                 "status":       t.workflow_state.name if t.workflow_state else "",
+                "status_color": t.workflow_state.color_code if t.workflow_state else "#80868b",
                 "priority":     t.priority,
                 "due_date":     str(t.due_date) if t.due_date else None,
                 "project":      t.project.name,
+                "project_code": t.project.code if t.project else "",
             }
             for t in recent_items
         ]
+
+        # ── Tickets grouped by workflow state (for dashboard cards) ──
+        ticket_ct = ContentType.objects.get_for_model(Ticket)
+        workflow_states = WorkflowState.objects.filter(content_type=ticket_ct).order_by("order")
+        ticket_workflow = []
+        for state in workflow_states:
+            state_qs = my_items.filter(workflow_state=state).select_related("project")
+            ticket_workflow.append({
+                "slug":       state.slug,
+                "name":       state.name,
+                "color":      state.color_code or "#80868b",
+                "count":      state_qs.count(),
+                "is_initial": state.is_initial,
+                "is_final":   state.is_final,
+                "tickets": [
+                    {
+                        "id":            str(t.id),
+                        "ticket_number": t.ticket_id,
+                        "title":         t.title,
+                        "type":          t.type,
+                        "priority":      t.priority,
+                        "due_date":      str(t.due_date) if t.due_date else None,
+                        "project_code":  t.project.code if t.project else "",
+                        "project_name":  t.project.name if t.project else "",
+                        "is_overdue": bool(
+                            t.due_date and t.due_date < today and not state.is_final
+                        ),
+                    }
+                    for t in state_qs.order_by("due_date", "-updated_at")[:25]
+                ],
+            })
 
         # ── Pending follow-ups (assigned to me) ───────────────────────
         pending_followups_data = []
@@ -713,6 +748,7 @@ class EmployeeDashboardView(APIView):
         return Response({
             "profile":      profile,
             "work_items":   work_items,
+            "ticket_workflow": ticket_workflow,
             "recent_items": recent_items_data,
             "pending_followups": pending_followups_data,
             "my_projects":  my_projects,
@@ -755,7 +791,7 @@ class ProjectHealthView(APIView):
         today = date.today()
         year = int(request.query_params.get("year", today.year))
         month = int(request.query_params.get("month", today.month))
-        projects = Project.objects.filter(is_deleted=False, is_active=True).eligible_for_due_tracking()
+        projects = Project.objects.filter(is_deleted=False).in_active_business().eligible_for_due_tracking()
         portfolio = _portfolio_projects(projects, today, year, month)
         return Response(portfolio)
 

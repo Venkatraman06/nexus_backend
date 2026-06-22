@@ -41,17 +41,13 @@ class SocialPostViewSet(BaseModelViewSet):
     ordering = ["-created_at"]
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
+    # feed / retrieve / like / comment / create: any authenticated user (My Dashboard widget)
     PERMISSION_MAP = {
         "list":           "pmt.social_feed.view",
-        "retrieve":       "pmt.social_feed.view",
-        "create":         "pmt.social_feed.create",
         "update":         "pmt.social_feed.update",
         "partial_update": "pmt.social_feed.update",
         "destroy":        "pmt.social_feed.delete",
         "transition":     "pmt.social_feed.transition",
-        "like":           "pmt.social_feed.view",
-        "comment":        "pmt.social_feed.view",
-        "feed":           "pmt.social_feed.view",
         "my_posts":       "pmt.social_feed.view",
     }
 

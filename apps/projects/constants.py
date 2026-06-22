@@ -3,6 +3,7 @@
 from django.conf import settings
 
 DEFAULT_PROJECT_DUE_EXCLUDED_WORKFLOW_SLUGS = ("close", "cancelled")
+DEFAULT_ACTIVE_BUSINESS_WORKFLOW_SLUGS = ("kickoff", "ongoing")
 
 
 def get_project_due_excluded_workflow_slugs() -> tuple[str, ...]:
@@ -13,6 +14,17 @@ def get_project_due_excluded_workflow_slugs() -> tuple[str, ...]:
     configured = getattr(settings, "PROJECT_DUE_EXCLUDED_WORKFLOW_SLUGS", None)
     if configured is None:
         return DEFAULT_PROJECT_DUE_EXCLUDED_WORKFLOW_SLUGS
+    return tuple(configured)
+
+
+def get_active_business_workflow_slugs() -> tuple[str, ...]:
+    """
+    Workflow slugs that count as an active (in-business) project on dashboards.
+    Override in settings: ACTIVE_BUSINESS_WORKFLOW_SLUGS = ["kickoff", "ongoing", ...]
+    """
+    configured = getattr(settings, "ACTIVE_BUSINESS_WORKFLOW_SLUGS", None)
+    if configured is None:
+        return DEFAULT_ACTIVE_BUSINESS_WORKFLOW_SLUGS
     return tuple(configured)
 
 

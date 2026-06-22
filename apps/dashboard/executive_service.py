@@ -10,6 +10,7 @@ from apps.common.constants import EmployeeStatus
 from apps.expenses.models import CompanyExpense, ExpenseStatus
 from apps.master.models import RateCard
 from apps.payment.models import Invoice, Payment, PaymentAllocation
+from apps.projects.constants import get_active_business_workflow_slugs
 from apps.projects.models import Client, Project
 from apps.workitems.models import WorkLog
 
@@ -24,9 +25,11 @@ from .fy_utils import (
 
 HOURS_PER_DAY = Decimal("8")
 
+_ACTIVE_BUSINESS_SLUGS = get_active_business_workflow_slugs()
+
 PIPELINE_BUCKETS = (
     ("pipeline", "Enquiry / Follow-up", ("enquiry", "followup"), "#8B5CF6"),
-    ("active", "Active business", ("kickoff", "ongoing"), "#10B981"),
+    ("active", "Active business", _ACTIVE_BUSINESS_SLUGS, "#10B981"),
     ("completed", "Completed", ("close",), "#059669"),
     ("cancelled", "Cancelled", ("cancelled",), "#EF4444"),
 )
@@ -160,9 +163,10 @@ def build_executive_dashboard(fy_start_year: int, today: date | None = None) -> 
     }
 
     projects_qs = Project.objects.filter(is_deleted=False).select_related("client")
+    active_business_qs = projects_qs.in_active_business()
     project_stats = {
         "total": projects_qs.count(),
-        "active": projects_qs.filter(is_active=True).count(),
+        "active": active_business_qs.count(),
     }
 
     invoices_fy = Invoice.objects.filter(
@@ -189,7 +193,7 @@ def build_executive_dashboard(fy_start_year: int, today: date | None = None) -> 
     expense_total = _dec(expenses_fy.aggregate(t=Sum("amount"))["t"])
 
     budget_total = _dec(
-        projects_qs.filter(is_active=True).aggregate(t=Sum("budget"))["t"]
+        active_business_qs.aggregate(t=Sum("budget"))["t"]
     )
 
     finance_stats = {
@@ -278,7 +282,7 @@ def build_executive_dashboard(fy_start_year: int, today: date | None = None) -> 
 
     # Project portfolio with margin
     project_rows = []
-    for p in projects_qs.filter(is_active=True).order_by("code"):
+    for p in active_business_qs.order_by("code"):
         pid = str(p.id)
         logged = _project_logged_hours(p.id, fy_start, fy_end)
         emp_cost = _project_employee_cost(p.id, fy_start, fy_end, rates)
