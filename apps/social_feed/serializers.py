@@ -12,6 +12,68 @@ class SocialPostCommentSerializer(serializers.ModelSerializer):
         read_only_fields = ["created_by", "created_by_name"]
 
 
+class SocialPostFeedSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for the published feed (dashboard widget / feed tab)."""
+    created_by_name = serializers.SerializerMethodField()
+    created_by_avatar = serializers.SerializerMethodField()
+    created_by_id = serializers.SerializerMethodField()
+    image_url = serializers.SerializerMethodField()
+    attachment_url = serializers.SerializerMethodField()
+    attachment_name = serializers.SerializerMethodField()
+    workflow_state_name = serializers.CharField(source="workflow_state.name", read_only=True, default="")
+    workflow_state_slug = serializers.CharField(source="workflow_state.slug", read_only=True, default="")
+    is_liked_by_me = serializers.BooleanField(read_only=True, default=False)
+
+    class Meta:
+        model = SocialPost
+        fields = [
+            "id", "title", "content", "image_url", "attachment_url", "attachment_name",
+            "created_by_id", "created_by_name", "created_by_avatar",
+            "like_count", "comment_count", "is_liked_by_me",
+            "workflow_state_name", "workflow_state_slug",
+            "created_at",
+        ]
+
+    def get_created_by_name(self, obj):
+        return obj.created_by_name or (obj.created_by.full_name if obj.created_by else "")
+
+    def get_created_by_id(self, obj):
+        return str(obj.created_by_id) if obj.created_by_id else None
+
+    def get_created_by_avatar(self, obj):
+        if obj.created_by and obj.created_by.profile_picture:
+            try:
+                return obj.created_by.profile_picture.url
+            except Exception:
+                return None
+        return None
+
+    def get_image_url(self, obj):
+        if obj.image:
+            try:
+                return obj.image.url
+            except Exception:
+                return None
+        return None
+
+    def get_attachment_url(self, obj):
+        if obj.attachment:
+            try:
+                return obj.attachment.url
+            except Exception:
+                return None
+        return None
+
+    def get_attachment_name(self, obj):
+        if obj.attachment:
+            try:
+                import os
+                return os.path.basename(obj.attachment.name)
+            except Exception:
+                return "Attachment"
+        return None
+
+
 class SocialPostListSerializer(serializers.ModelSerializer):
     created_by_name = serializers.SerializerMethodField()
     created_by_avatar = serializers.SerializerMethodField()

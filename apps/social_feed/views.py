@@ -1,10 +1,11 @@
-from django.db.models import Prefetch
+from django.db.models import Exists, OuterRef, Prefetch
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
+from apps.common.pagination import DefaultListPagination
 from apps.common.permissions import HasKeycloakPermission, IsAuthenticated
 from apps.common.viewsets import BaseModelViewSet
 from packages.workflow.exceptions import WorkflowTransitionError
@@ -20,6 +21,7 @@ from .workflow import (
 from .serializers import (
     SocialPostCreateSerializer,
     SocialPostDetailSerializer,
+    SocialPostFeedSerializer,
     SocialPostListSerializer,
     SocialPostTransitionSerializer,
 )
@@ -35,6 +37,7 @@ class SocialPostViewSet(BaseModelViewSet):
         ),
     ).filter(is_deleted=False)
     permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    pagination_class = DefaultListPagination
     filterset_class = SocialPostFilter
     search_fields = ["title", "content"]
     ordering_fields = ["created_at", "title", "like_count"]
@@ -51,7 +54,22 @@ class SocialPostViewSet(BaseModelViewSet):
         "my_posts":       "pmt.social_feed.view",
     }
 
+    def get_queryset(self):
+        base = SocialPost.objects.select_related(
+            "created_by", "workflow_state",
+        ).filter(is_deleted=False)
+        if getattr(self, "action", None) == "feed":
+            return base
+        return base.prefetch_related(
+            Prefetch(
+                "comments",
+                queryset=SocialPostComment.objects.select_related("created_by").order_by("created_at"),
+            ),
+        )
+
     def get_serializer_class(self):
+        if self.action == "feed":
+            return SocialPostFeedSerializer
         if self.action == "retrieve":
             return SocialPostDetailSerializer
         if self.action in ("create", "update", "partial_update"):
@@ -130,14 +148,25 @@ class SocialPostViewSet(BaseModelViewSet):
     # ── Feed ──────────────────────────────────────────────────────────────────
     @action(detail=False, methods=["get"], url_path="feed")
     def feed(self, request):
-        """Only published posts, ordered by creation date."""
-        ensure_social_post_workflow()
+        """Published company-wide posts — paginated, lightweight payload."""
+        user = request.user
+        liked_subquery = SocialPostLike.objects.filter(
+            post=OuterRef("pk"),
+            created_by=user,
+            is_deleted=False,
+        )
         qs = self.get_queryset().filter(
             workflow_state__slug="published",
             is_company_wide=True,
+        ).annotate(
+            is_liked_by_me=Exists(liked_subquery),
         )
         qs = self.filter_queryset(qs)
-        serializer = self.get_serializer(qs, many=True)
+
+        page = self.paginate_queryset(qs)
+        serializer = self.get_serializer(page if page is not None else qs, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
         return Response(serializer.data)
 
     # ── My Posts ──────────────────────────────────────────────────────────────

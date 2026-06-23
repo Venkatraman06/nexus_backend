@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from apps.common.date_rules import validate_due_date_on_write
+
 from .models import FollowUp
 
 
@@ -96,6 +98,12 @@ class FollowUpCreateSerializer(serializers.ModelSerializer):
         end = attrs.get("end_time")
         if start and end and end <= start:
             raise serializers.ValidationError({"end_time": "End time must be after start time."})
+        if "due_date" in attrs:
+            validate_due_date_on_write(
+                attrs.get("due_date"),
+                previous_due_date=self.instance.due_date if self.instance else None,
+                is_create=self.instance is None,
+            )
         return attrs
 
 
