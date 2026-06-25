@@ -488,7 +488,8 @@ class Command(BaseCommand):
         self._log(f"  Timesheets: {approved} weeks approved by manager")
 
     def _seed_leaves(self, dry, emp):
-        from apps.attendance.models import LeaveRequest, LeaveRequestStatus, LeaveType
+        from apps.attendance.models import LeaveRequest, LeaveRequestStatus
+        from apps.master.models import LeaveType
 
         hr = emp.get("HIT-004")
         created = 0

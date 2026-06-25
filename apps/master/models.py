@@ -138,8 +138,9 @@ class RateCard(models.Model):
     def __str__(self):
         return f"{self.designation_ref} / {self.department_ref} — ₹{self.hr_daily_rate}/day"
 
-class Holiday(models.Model):
-    id          = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+class Holiday(MasterBase):
+    """Holiday master. `name` is intentionally not globally unique (e.g. 'New Year'
+    recurs every year on a different date) — uniqueness is enforced per (date, name)."""
     name        = models.CharField(max_length=200)
     date        = models.DateField()
     year        = models.PositiveIntegerField()
@@ -148,14 +149,33 @@ class Holiday(models.Model):
         ("COMPANY",    "Company Holiday"),
     ], default="GOVERNMENT")
     description = models.TextField(blank=True, default="")
-    is_active   = models.BooleanField(default=True)
-    created_at  = models.DateTimeField(auto_now_add=True)
-    updated_at  = models.DateTimeField(auto_now=True)
 
-    class Meta:
+    class Meta(MasterBase.Meta):
         db_table = "master_holiday"
         ordering = ["date"]
         unique_together = ("date", "name")
+        verbose_name = _("holiday")
+        verbose_name_plural = _("holidays")
+
+    def save(self, *args, **kwargs):
+        if self.date and not self.year:
+            self.year = self.date.year
+        if not self.slug:
+            base = slugify(self.name)
+            self.slug = f"{base}-{self.date.isoformat()}" if self.date else base
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.name} ({self.date})"
+
+
+class LeaveType(MasterBase):
+    code     = models.CharField(max_length=20, unique=True)
+    max_days = models.PositiveIntegerField(default=0, help_text="Max days allowed per year (0 = unlimited)")
+    is_paid  = models.BooleanField(default=True)
+    color    = models.CharField(max_length=20, default="#1677ff")
+
+    class Meta(MasterBase.Meta):
+        db_table = "hrms_leave_type"
+        verbose_name = _("leave type")
+        verbose_name_plural = _("leave types")

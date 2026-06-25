@@ -100,27 +100,12 @@ class AttendanceBreak(BaseModel):
         return f"{self.attendance} | {self.break_type} | {self.start_time}"
 
 
-class LeaveType(BaseModel):
-    name     = models.CharField(max_length=60, unique=True)
-    code     = models.CharField(max_length=20, unique=True)
-    max_days = models.PositiveIntegerField(default=0, help_text="Max days allowed per year (0 = unlimited)")
-    is_paid  = models.BooleanField(default=True)
-    color    = models.CharField(max_length=20, default="#1677ff")
-
-    class Meta:
-        db_table = "hrms_leave_type"
-        ordering = ["name"]
-
-    def __str__(self):
-        return self.name
-
-
 class LeaveBalance(BaseModel):
     employee   = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
         related_name="leave_balances",
     )
-    leave_type = models.ForeignKey(LeaveType, on_delete=models.CASCADE, related_name="balances")
+    leave_type = models.ForeignKey("master.LeaveType", on_delete=models.CASCADE, related_name="balances")
     year       = models.PositiveIntegerField()
     total_days = models.DecimalField(max_digits=5, decimal_places=1, default=0)
     used_days  = models.DecimalField(max_digits=5, decimal_places=1, default=0)
@@ -155,7 +140,7 @@ class LeaveRequest(BaseModel):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
         related_name="leave_requests",
     )
-    leave_type       = models.ForeignKey(LeaveType, on_delete=models.PROTECT, related_name="requests")
+    leave_type       = models.ForeignKey("master.LeaveType", on_delete=models.PROTECT, related_name="requests")
     start_date       = models.DateField()
     end_date         = models.DateField()
     days_count       = models.DecimalField(max_digits=5, decimal_places=1, default=1)
@@ -197,7 +182,7 @@ class LeaveRequest(BaseModel):
 
 class LeavePolicyRule(models.Model):
     id                 = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    leave_type         = models.ForeignKey(LeaveType, on_delete=models.CASCADE, related_name="policy_rules")
+    leave_type         = models.ForeignKey("master.LeaveType", on_delete=models.CASCADE, related_name="policy_rules")
     total_days         = models.DecimalField(max_digits=5, decimal_places=1, default=0)
     carry_forward      = models.BooleanField(default=False)
     carry_forward_limit= models.DecimalField(max_digits=5, decimal_places=1, default=0)

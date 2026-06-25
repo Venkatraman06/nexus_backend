@@ -578,6 +578,9 @@ class EmployeeDashboardView(APIView):
                 "duration_hours": 0, "working_hours": 0, "total_break_minutes": 0, "breaks": [],
             }
 
+        from apps.attendance.views import get_clock_permissions
+        attendance_today.update(get_clock_permissions(me, on_date=today))
+
         # ── Attendance — this month ───────────────────────────────────
         month_records = AttendanceRecord.objects.filter(
             employee=me, date__year=today.year, date__month=today.month, is_deleted=False

@@ -128,6 +128,14 @@ class MyTimesheetWeekView(APIView):
             day["leave_type_code"]   = att.get("leave_type_code")
             day["leave_is_paid"]     = att.get("leave_is_paid")
             day["leave_reason"]      = att.get("leave_reason")
+            if day["is_on_leave"] or day["is_holiday"]:
+                day["can_log"] = False
+                if day["is_on_leave"]:
+                    day["attendance_hint"] = (
+                        "Approved leave — time is auto-recorded; manual logging is not allowed."
+                    )
+                elif day["is_holiday"]:
+                    day["attendance_hint"] = "Holiday — manual time logging is not allowed."
 
         payload = {
             "weekly_timesheet": WeeklyTimesheetSerializer(weekly).data,
@@ -585,7 +593,15 @@ class AdminTimesheetWeekView(APIView):
             day["leave_type_code"]   = att.get("leave_type_code")
             day["leave_is_paid"]     = att.get("leave_is_paid")
             day["leave_reason"]      = att.get("leave_reason")
- 
+            if day["is_on_leave"] or day["is_holiday"]:
+                day["can_log"] = False
+                if day["is_on_leave"]:
+                    day["attendance_hint"] = (
+                        "Approved leave — time is auto-recorded; manual logging is not allowed."
+                    )
+                elif day["is_holiday"]:
+                    day["attendance_hint"] = "Holiday — manual time logging is not allowed."
+
         payload = {
             "weekly_timesheet": WeeklyTimesheetSerializer(weekly).data,
             "days": days,

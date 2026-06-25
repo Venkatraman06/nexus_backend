@@ -73,7 +73,7 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
             "total_experience", "prior_experience",
             "manager", "manager_name",
             "shift_applicable", "shift_category", "shift_category_name",
-            "custom_shift_start", "custom_shift_end",
+            "custom_shift_start", "custom_shift_end", "wfh_allowed",
             "status", "is_active", "is_pmo", "is_manager", "is_staff",
             "keycloak_group", "profile_picture", "profile_picture_url",
             "created_at", "updated_at", "last_login",
@@ -107,7 +107,7 @@ class EmployeeCreateSerializer(serializers.ModelSerializer):
             "manager",
             "shift_applicable", "shift_category",
             "custom_shift_start", "custom_shift_end",
-            "status", "keycloak_group", "company",
+            "wfh_allowed", "status", "keycloak_group", "company",
         ]
         extra_kwargs = {
             "username": {"required": False, "allow_blank": True},
@@ -134,7 +134,7 @@ class EmployeeUpdateSerializer(serializers.ModelSerializer):
             "manager",
             "shift_applicable", "shift_category",
             "custom_shift_start", "custom_shift_end",
-            "status", "keycloak_group",
+            "wfh_allowed", "status", "keycloak_group",
         ]
 
 

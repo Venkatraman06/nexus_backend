@@ -91,17 +91,65 @@ def validate_employment_window(employee, log_date: date) -> str | None:
     return None
 
 
+def is_shift_employee(employee) -> bool:
+    """Only shift-applicable employees need completed attendance before logging time."""
+    return bool(getattr(employee, "shift_applicable", False))
+
+
+def is_on_approved_leave(employee, log_date: date) -> bool:
+    from apps.attendance.models import LeaveRequest, LeaveRequestStatus
+
+    return LeaveRequest.objects.filter(
+        employee=employee,
+        status=LeaveRequestStatus.APPROVED,
+        start_date__lte=log_date,
+        end_date__gte=log_date,
+        is_deleted=False,
+    ).exists()
+
+
+def validate_leave_for_log(employee, log_date: date) -> str | None:
+    if not is_on_approved_leave(employee, log_date):
+        return None
+    return (
+        f"Approved leave on {log_date:%d %b %Y}. "
+        "Time is auto-recorded from leave — manual logging is not allowed."
+    )
+
+
 def validate_attendance_for_log(employee, log_date: date) -> str | None:
-    """Time may only be logged when attendance check-in and check-out exist for the date."""
+    """Return an error message when the employee may not log time on log_date."""
     emp_err = validate_employment_window(employee, log_date)
     if emp_err:
         return emp_err
+
+    leave_err = validate_leave_for_log(employee, log_date)
+    if leave_err:
+        return leave_err
+
+    from apps.master.models import Holiday
+
+    if Holiday.objects.filter(date=log_date, is_active=True).exists():
+        return f"{log_date:%d %b %Y} is a holiday. Manual time logging is not allowed."
 
     record = AttendanceRecord.objects.filter(
         employee=employee,
         date=log_date,
         is_deleted=False,
     ).first()
+
+    if not is_shift_employee(employee):
+        if record and record.status == AttendanceStatus.ON_LEAVE:
+            return (
+                f"Attendance on {log_date:%d %b %Y} is On Leave. "
+                "Manual time logging is not allowed."
+            )
+        if record and record.status == AttendanceStatus.ABSENT:
+            return (
+                f"Attendance on {log_date:%d %b %Y} is Absent. "
+                "Mark attendance before logging time."
+            )
+        return None
 
     if not record:
         return (
@@ -128,24 +176,14 @@ def validate_attendance_for_log(employee, log_date: date) -> str | None:
 
 
 def get_loggable_dates(employee, start: date, end: date) -> list[date]:
-    """Dates in range where the employee may log time (attendance start + end marked)."""
-    qs = AttendanceRecord.objects.filter(
-        employee=employee,
-        date__range=[start, end],
-        is_deleted=False,
-        status__in=LOGGABLE_ATTENDANCE_STATUSES,
-        check_in__isnull=False,
-        check_out__isnull=False,
-    ).values_list("date", flat=True)
-
-    dates = list(qs)
-    joining = getattr(employee, "joining_date", None)
-    retirement = getattr(employee, "retirement_date", None)
-    if joining:
-        dates = [d for d in dates if d >= joining]
-    if retirement:
-        dates = [d for d in dates if d <= retirement]
-    return sorted(dates)
+    """Dates in range where the employee may log time (current week only)."""
+    dates: list[date] = []
+    cur = start
+    while cur <= end:
+        if is_current_week(cur) and validate_attendance_for_log(employee, cur) is None:
+            dates.append(cur)
+        cur += timedelta(days=1)
+    return dates
 
 
 def get_allocated_project_ids(employee, log_date: date) -> set:
@@ -544,6 +582,8 @@ def copy_logs_from_date(employee, source_date: date, target_date: date) -> list[
     )
     created = []
     for src in source_logs:
+        if validate_attendance_for_log(employee, target_date):
+            continue
         wl = WorkLog.objects.create(
             employee=employee,
             ticket=src.ticket,

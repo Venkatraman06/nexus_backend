@@ -1,9 +1,5 @@
 from django.contrib import admin
-from .models import AttendanceRecord, LeaveType, LeaveBalance, LeaveRequest
-
-@admin.register(LeaveType)
-class LeaveTypeAdmin(admin.ModelAdmin):
-    list_display = ["name", "code", "max_days", "is_paid", "is_active"]
+from .models import AttendanceRecord, LeaveBalance, LeaveRequest
 
 @admin.register(AttendanceRecord)
 class AttendanceRecordAdmin(admin.ModelAdmin):

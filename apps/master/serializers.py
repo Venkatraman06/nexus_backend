@@ -171,13 +171,15 @@ class RateCardSerializer(serializers.ModelSerializer):
             )
         return data
 
-from apps.attendance.models import LeaveType, LeavePolicyRule
+from .models import LeaveType
+from apps.attendance.models import LeavePolicyRule
 
 
 class LeaveTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model  = LeaveType
-        fields = ["id", "name", "code", "max_days", "is_paid", "color"]
+        fields = ["id", "name", "slug", "code", "max_days", "is_paid", "color", "is_active", "created_at", "updated_at"]
+        read_only_fields = ["id", "slug", "created_at", "updated_at"]
 
 
 class LeavePolicyRuleSerializer(serializers.ModelSerializer):

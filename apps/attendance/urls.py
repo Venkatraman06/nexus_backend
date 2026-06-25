@@ -4,7 +4,7 @@ from .views import (
     MonthlyAttendanceView, StartBreakView, EndBreakView, AttendanceTrackerView,
     AttendanceExportView, AttendanceOverviewView, EmployeeCalendarView,
     LeaveTypeListView, MyLeaveBalancesView, MyLeaveRequestListView,
-    LeaveRequestDetailView, LeaveReviewView, AdminLeaveRequestListView,
+    LeaveRequestDetailView, LeaveReviewView, AdminLeaveRequestListView, LeaveAssignView,
     AttendanceListView, AttendanceClockInEnableView, EmployeeShiftView,
     EmployeeScheduleView, WFHSettingView,
     WFHRequestView, WFHRequestAdminView, WFHRequestReviewView,
@@ -40,5 +40,6 @@ urlpatterns = [
     path("leave/requests/<uuid:pk>/",        LeaveRequestDetailView.as_view(),           name="leave-request-detail"),
     path("leave/requests/<uuid:pk>/review/", LeaveReviewView.as_view(),                  name="leave-review"),
     path("leave/admin/requests/",            AdminLeaveRequestListView.as_view(),        name="leave-admin-requests"),
+    path("leave/admin/assign/",              LeaveAssignView.as_view(),                  name="leave-admin-assign"),
     path("attendance/employee-summary/",     EmployeeMonthlySummaryView.as_view(),       name="employee-monthly-summary"),
 ]

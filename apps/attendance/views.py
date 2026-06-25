@@ -20,9 +20,10 @@ from packages.keycloak import permissions
 
 from .models import (
     AttendanceRecord, AttendanceBreak, AttendanceStatus, BreakType,
-    LeaveBalance, LeaveRequest, LeaveType, LeaveRequestStatus,
+    LeaveBalance, LeaveRequest, LeaveRequestStatus,
     AttendanceClockInEnable, ShiftChangeRequest, WFHRequest, WFHSetting,
 )
+from apps.master.models import LeaveType
 from .serializers import (
     AttendanceRecordSerializer, CheckInSerializer, CheckOutSerializer,
     StartBreakSerializer,
@@ -98,6 +99,52 @@ def _check_shift_window(now_time, shift_time, before_min: int, after_min: int):
     return ok, f"{window_start.strftime('%I:%M %p')} – {window_end.strftime('%I:%M %p')}"
 
 
+def _is_shift_employee(employee) -> bool:
+    """Only employees flagged shift_applicable use mapped shift time windows."""
+    return bool(getattr(employee, "shift_applicable", False))
+
+
+def get_clock_permissions(employee, *, on_date: date | None = None, at_time=None) -> dict:
+    """Clock-in/out eligibility for dashboard and self-service UI."""
+    today = on_date or date.today()
+    now_time = at_time or dt.datetime.now().time()
+    shift_start, shift_end = _shift_times(employee)
+    hr_enabled = is_clockin_allowed_for_no_shift(employee, today)
+
+    perms = {
+        "shift_applicable": _is_shift_employee(employee),
+        "shift_start": shift_start.strftime("%H:%M") if shift_start else None,
+        "shift_end": shift_end.strftime("%H:%M") if shift_end else None,
+        "clockin_enabled": hr_enabled,
+        "can_clock_in": True,
+        "can_clock_out": True,
+        "clock_in_window": None,
+        "clock_out_window": None,
+    }
+
+    if not _is_shift_employee(employee):
+        return perms
+
+    if hr_enabled:
+        return perms
+
+    if shift_start:
+        ok, window = _check_shift_window(now_time, shift_start, 5, 5)
+        perms["can_clock_in"] = ok
+        perms["clock_in_window"] = window
+    else:
+        perms["can_clock_in"] = False
+
+    if shift_end:
+        ok, window = _check_shift_window(now_time, shift_end, 5, 10)
+        perms["can_clock_out"] = ok
+        perms["clock_out_window"] = window
+    else:
+        perms["can_clock_out"] = False
+
+    return perms
+
+
 # ── Self-service views ────────────────────────────────────────────────────────
 
 class TodayAttendanceView(APIView):
@@ -126,17 +173,11 @@ class CheckInView(APIView):
         lng      = serializer.validated_data.get("lng")
         me       = request.user
 
-        # ── Check if HR explicitly enabled clock-in for today ──
-        # This overrides ALL shift window restrictions
-        hr_enabled = is_clockin_allowed_for_no_shift(me, today)
-
-        if not hr_enabled:
-            has_shift = getattr(me, "shift_applicable", False) or bool(
-                getattr(me, "shift_category_id", None) or
-                (getattr(me, "custom_shift_start", None) and getattr(me, "custom_shift_end", None))
-            )
-
-            if has_shift:
+        # Shift employees: restrict check-in to mapped shift start window (HR override exempts).
+        # Non-shift employees: may check in any time.
+        if _is_shift_employee(me):
+            hr_enabled = is_clockin_allowed_for_no_shift(me, today)
+            if not hr_enabled:
                 shift_start, _ = _shift_times(me)
                 if shift_start:
                     ok, window = _check_shift_window(now_time, shift_start, before_min=5, after_min=5)
@@ -151,12 +192,11 @@ class CheckInView(APIView):
                             },
                             status=status.HTTP_400_BAD_REQUEST,
                         )
-            else:
-                # No shift and HR hasn't enabled — block
-                return Response(
-                    {"detail": "You have not been granted clock-in permission for today."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+                else:
+                    return Response(
+                        {"detail": "Shift timing is not configured for your profile."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
 
         # ... rest of your code unchanged
         record, created = AttendanceRecord.objects.get_or_create(
@@ -202,16 +242,9 @@ class CheckOutView(APIView):
         if record.check_out:
             return Response({"detail": "Already checked out today."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # ── HR override bypasses shift window ──
-        hr_enabled = is_clockin_allowed_for_no_shift(me, date.today())
-
-        if not hr_enabled:
-            has_shift = getattr(me, "shift_applicable", False) or bool(
-                getattr(me, "shift_category_id", None) or
-                (getattr(me, "custom_shift_start", None) and getattr(me, "custom_shift_end", None))
-            )
-
-            if has_shift:
+        if _is_shift_employee(me):
+            hr_enabled = is_clockin_allowed_for_no_shift(me, date.today())
+            if not hr_enabled:
                 _, shift_end = _shift_times(me)
                 if shift_end:
                     ok, window = _check_shift_window(now_time, shift_end, before_min=5, after_min=10)
@@ -226,6 +259,11 @@ class CheckOutView(APIView):
                             },
                             status=status.HTTP_400_BAD_REQUEST,
                         )
+                else:
+                    return Response(
+                        {"detail": "Shift timing is not configured for your profile."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
 
         # Auto-close any open break
         AttendanceBreak.objects.filter(
@@ -773,7 +811,7 @@ class LeaveTypeListView(APIView):
 
     @extend_schema(tags=["leave"])
     def get(self, request):
-        types = LeaveType.objects.filter(is_active=True, is_deleted=False)
+        types = LeaveType.objects.filter(is_active=True)
         return Response(LeaveTypeSerializer(types, many=True).data)
 
 
@@ -930,6 +968,106 @@ class AdminLeaveRequestListView(APIView):
         ]
 
         return Response({"summary": summary, "results": data})
+
+
+class LeaveAssignView(APIView):
+    """HR — assign a leave type's balance to one or more employees for a financial year."""
+    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    required_permission = "pmt.hrms.leave.manage"
+
+    def post(self, request):
+        from decimal import Decimal, InvalidOperation
+        from apps.dashboard.fy_utils import current_fy_start, fy_label
+        from .leave_utils import eligible_carry_forward_days
+
+        data          = request.data
+        leave_type_id = data.get("leave_type_id")
+        total_days    = data.get("total_days")
+        carry_forward = bool(data.get("carry_forward", False))
+        employee_ids  = data.get("employee_ids") or []
+
+        errors = {}
+        if not leave_type_id:
+            errors["leave_type_id"] = "This field is required."
+        if total_days is None or total_days == "":
+            errors["total_days"] = "This field is required."
+        if not employee_ids:
+            errors["employee_ids"] = "Select at least one employee."
+        if errors:
+            return Response({"detail": "Validation failed", "errors": errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            total_days = Decimal(str(total_days))
+            if total_days < 0:
+                raise InvalidOperation
+        except InvalidOperation:
+            return Response({"detail": "Validation failed", "errors": {"total_days": "Must be a non-negative number."}}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            leave_type = LeaveType.objects.get(id=leave_type_id, is_active=True)
+        except LeaveType.DoesNotExist:
+            return Response({"detail": "Leave type not found or inactive."}, status=status.HTTP_400_BAD_REQUEST)
+
+        fy_raw = data.get("financial_year")
+        fy_start_year = int(fy_raw) if fy_raw else current_fy_start()
+
+        employees  = list(account_models.Employee.objects.filter(id__in=employee_ids, is_deleted=False))
+        found_ids  = {str(e.id) for e in employees}
+        missing_ids = [eid for eid in employee_ids if str(eid) not in found_ids]
+
+        counts  = {"assigned": 0, "duplicate": 0, "max_days_exceeded": 0, "error": 0}
+        results = []
+
+        for emp in employees:
+            cf_days     = eligible_carry_forward_days(emp, leave_type, fy_start_year) if carry_forward else Decimal("0")
+            final_total = total_days + cf_days
+
+            if LeaveBalance.objects.filter(employee=emp, leave_type=leave_type, year=fy_start_year).exists():
+                counts["duplicate"] += 1
+                results.append({
+                    "employee_id": str(emp.id), "employee_name": emp.full_name,
+                    "status": "duplicate",
+                    "message": f"Already assigned for {fy_label(fy_start_year)}.",
+                })
+                continue
+
+            if leave_type.max_days and final_total > leave_type.max_days:
+                counts["max_days_exceeded"] += 1
+                results.append({
+                    "employee_id": str(emp.id), "employee_name": emp.full_name,
+                    "status": "max_days_exceeded",
+                    "message": f"{final_total} day(s) exceeds the {leave_type.max_days}-day max for {leave_type.name}.",
+                })
+                continue
+
+            LeaveBalance.objects.create(
+                employee=emp, leave_type=leave_type, year=fy_start_year,
+                total_days=final_total, used_days=0,
+            )
+            counts["assigned"] += 1
+            results.append({
+                "employee_id": str(emp.id), "employee_name": emp.full_name,
+                "status": "assigned",
+                "message": (
+                    f"Assigned {final_total} day(s)"
+                    + (f" (incl. {cf_days} carried forward)" if cf_days > 0 else "")
+                    + f" for {fy_label(fy_start_year)}."
+                ),
+                "carry_forward_days": float(cf_days),
+                "total_days": float(final_total),
+            })
+
+        for eid in missing_ids:
+            counts["error"] += 1
+            results.append({"employee_id": str(eid), "employee_name": None, "status": "error", "message": "Employee not found."})
+
+        return Response({
+            "financial_year": fy_start_year,
+            "fy_label":        fy_label(fy_start_year),
+            "leave_type_name": leave_type.name,
+            "summary":         counts,
+            "results":         results,
+        })
 
 
 class EmployeeCalendarView(APIView):

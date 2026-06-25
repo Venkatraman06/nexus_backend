@@ -191,7 +191,8 @@ class BillingTypeViewSet(ModelViewSet):
 class BillingTypeDropdownView(DropdownView):
     queryset = BillingType.objects.all()
     serializer_class = BillingTypeDropdownSerializer
-from apps.attendance.models import LeaveType, LeaveBalance
+from .models import LeaveType
+from apps.attendance.models import LeaveBalance
 from apps.attendance.models import LeavePolicyRule
 from .serializers import LeaveTypeSerializer, LeavePolicyRuleSerializer
 from apps.accounts.models import Employee
@@ -207,7 +208,7 @@ class LeaveTypeViewSet(ModelViewSet):
     PERMISSION_MAP     = _HRMS_MASTER_PERMS
     serializer_class   = LeaveTypeSerializer
     queryset           = LeaveType.objects.all()
-    filterset_fields   = ["is_paid"]
+    filterset_fields   = ["is_paid", "is_active"]
     search_fields      = ["name", "code"]
 
 
