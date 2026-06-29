@@ -253,6 +253,8 @@ class TicketViewSet(BaseModelViewSet):
         )
 
         if ticket.assignee_id:
+            from .assignee_history import record_initial_assignee
+            record_initial_assignee(ticket, changed_by=user)
             from apps.notifications.constants import EventType, ReferenceType
             from apps.notifications.publisher import publish_event
             publish_event(
@@ -283,6 +285,11 @@ class TicketViewSet(BaseModelViewSet):
                 changes=changes,
             )
 
+        if ticket.assignee_id != old_assignee_id:
+            from .assignee_history import record_assignee_change
+            record_assignee_change(
+                ticket, old_assignee_id, ticket.assignee_id, changed_by=self.request.user,
+            )
         if ticket.assignee_id and ticket.assignee_id != old_assignee_id:
             from apps.notifications.constants import EventType, ReferenceType
             from apps.notifications.publisher import publish_event

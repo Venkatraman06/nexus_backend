@@ -32,6 +32,7 @@
   {"name": "pmt.hrms.employee.sync", "description": "Sync employees from Keycloak", "category": "HRMS"},
 
   {"name": "pmt.hrms.attendance.view", "description": "View attendance tracker", "category": "HRMS"},
+  {"name": "pmt.hrms.attendance.manage", "description": "Manage attendance settings, shifts, and HR requests", "category": "HRMS"},
   {"name": "pmt.hrms.leave.view", "description": "View leave requests", "category": "HRMS"},
   {"name": "pmt.hrms.leave.approve", "description": "Approve or reject leave requests", "category": "HRMS"},
   {"name": "pmt.hrms.leave.manage", "description": "Manage leave types and balances", "category": "HRMS"},

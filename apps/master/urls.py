@@ -2,8 +2,8 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
-    DesignationViewSet, DepartmentViewSet, LocationViewSet,
-    GradeViewSet, EmploymentTypeViewSet, ShiftCategoryViewSet, RateCardViewSet,
+    DesignationViewSet, DepartmentViewSet, LocationViewSet, GradeViewSet,
+    EmploymentTypeViewSet, ShiftCategoryViewSet, RateCardViewSet,
     DesignationDropdownView, DepartmentDropdownView, LocationDropdownView,
     GradeDropdownView, EmploymentTypeDropdownView, ShiftCategoryDropdownView,
     ClientCategoryViewSet, ClientCategoryDropdownView,
@@ -16,7 +16,7 @@ router = DefaultRouter()
 router.register("master/designations",       DesignationViewSet,    basename="designation")
 router.register("master/departments",        DepartmentViewSet,     basename="department")
 router.register("master/locations",          LocationViewSet,       basename="location")
-router.register("master/grades",             GradeViewSet,          basename="grade")
+router.register("master/grades",              GradeViewSet,          basename="grade")
 router.register("master/employment-types",   EmploymentTypeViewSet, basename="employment-type")
 router.register("master/shift-categories",  ShiftCategoryViewSet,  basename="shift-category")
 router.register("master/rate-cards",        RateCardViewSet,       basename="rate-card")

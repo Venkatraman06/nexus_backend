@@ -357,7 +357,6 @@ class EmployeeDashboardView(APIView):
             "email":               me.email,
             "designation":         desig_name,
             "department":          dept_name,
-            "grade":               me.grade.name if me.grade_id else "",
             "keycloak_group":      me.keycloak_group,
             "joining_date":        str(me.joining_date) if me.joining_date else None,
             "profile_picture_url": profile_pic_url,

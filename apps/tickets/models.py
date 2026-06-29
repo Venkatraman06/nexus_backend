@@ -170,3 +170,31 @@ class TicketHistory(models.Model):
 
     def __str__(self):
         return f"{self.ticket.ticket_id} [{self.action}] at {self.changed_at:%Y-%m-%d %H:%M}"
+
+
+class TicketAssigneeHistory(models.Model):
+    """Time-bounded assignee windows for performance attribution."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    ticket = models.ForeignKey(
+        Ticket, on_delete=models.CASCADE, related_name="assignee_history",
+    )
+    employee = models.ForeignKey(
+        "accounts.Employee",
+        on_delete=models.CASCADE,
+        related_name="ticket_assignee_periods",
+    )
+    effective_from = models.DateTimeField()
+    effective_to = models.DateTimeField(null=True, blank=True)
+    changed_by = models.ForeignKey(
+        "accounts.Employee",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="ticket_assignee_changes",
+    )
+
+    class Meta:
+        db_table = "ticket_assignee_history"
+        ordering = ["-effective_from"]
+
+    def __str__(self):
+        return f"{self.ticket.ticket_id} → {self.employee_id}"

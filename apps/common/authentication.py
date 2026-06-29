@@ -44,11 +44,17 @@ class KeycloakAuthentication(BaseAuthentication):
             username = user_info.get("preferred_username") or token_info.get("preferred_username")
 
             from apps.accounts.models import Employee
+            from apps.accounts.services import KeycloakSyncService
+
             user = Employee.objects.filter(keycloak_id=user_id).first()
             if user is None and username:
                 user = Employee.objects.filter(username=username).first()
             if user is None:
-                raise AuthenticationFailed("Employee not found. Run sync_employees first.")
+                try:
+                    user = KeycloakSyncService().sync_one(user_id)
+                except Exception as exc:
+                    logger.error("Failed to sync employee %s from Keycloak: %s", user_id, exc)
+                    raise AuthenticationFailed("Employee not found and sync failed.")
 
             # Resolve and attach Keycloak permissions (cached in Redis)
             from packages.keycloak.permissions import PermissionResolver

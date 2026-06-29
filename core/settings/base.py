@@ -26,8 +26,9 @@ USE_TZ = True
 
 PROJECT_APPS = [
     "apps.common",
-    "apps.accounts",
     "apps.master",
+    "packages.workflow",
+    "apps.accounts",
     "apps.projects",
     "apps.timesheets",
     "apps.workitems",
@@ -47,7 +48,6 @@ PROJECT_APPS = [
     "apps.todos",
     "apps.workspace",
     "apps.social_feed",
-    "packages.workflow",
 ]
 
 THIRD_PARTY_LIBRARIES = [
