@@ -1,5 +1,8 @@
+import datetime
+
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from rest_framework import status
+from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -9,6 +12,7 @@ from apps.common.permissions import IsAuthenticated, HasKeycloakPermission
 import logging
 
 from .models import Employee, EmployeeCertificate
+from .performance import build_employee_performance
 from .serializers import (
     EmployeeListSerializer, EmployeeDetailSerializer,
     EmployeeUpdateSerializer, EmployeeCreateSerializer,
@@ -79,6 +83,28 @@ class EmployeeViewSet(BaseModelViewSet):
         if self.action in ["update", "partial_update"]:
             return EmployeeUpdateSerializer
         return EmployeeListSerializer
+
+    @action(detail=True, methods=["get"], url_path="performance")
+    def performance(self, request, pk=None):
+        employee = self.get_object()
+        period = request.query_params.get("period", "week")
+        if period not in ("week", "month"):
+            period = "week"
+
+        today = datetime.date.today()
+        from_str = request.query_params.get("from")
+        to_str = request.query_params.get("to")
+        try:
+            from_date = datetime.date.fromisoformat(from_str) if from_str else today.replace(day=1)
+        except ValueError:
+            from_date = today.replace(day=1)
+        try:
+            to_date = datetime.date.fromisoformat(to_str) if to_str else today
+        except ValueError:
+            to_date = today
+
+        data = build_employee_performance(employee, period, from_date, to_date)
+        return Response(data)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
