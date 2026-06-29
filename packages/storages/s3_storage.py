@@ -6,6 +6,8 @@ from django.utils.deconstruct import deconstructible
 
 class S3Storage:
     def __init__(self, access_key, secret_key, bucket_name, endpoint_url):
+        if endpoint_url and ":9001" in endpoint_url:
+            endpoint_url = endpoint_url.replace(":9001", ":9000")
         self.bucket_name = bucket_name
         self.endpoint_url = endpoint_url
         self.client = boto3.client(

@@ -8,13 +8,16 @@ from .s3_storage import DjangoS3Storage
 def _get_config():
     """MinIO/S3 settings — STORAGES OPTIONS first, then env (works in local-dev mode)."""
     opts = settings.STORAGES.get("default", {}).get("OPTIONS", {})
+    endpoint = opts.get("endpoint_url") or config(
+        "MINIO_ENDPOINT_URL", default="http://localhost:9000",
+    )
+    if endpoint and ":9001" in endpoint:
+        endpoint = endpoint.replace(":9001", ":9000")
     return {
         "access_key": opts.get("access_key") or config("MINIO_ACCESS_KEY", default="minioadmin"),
         "secret_key": opts.get("secret_key") or config("MINIO_SECRET_KEY", default="minioadmin"),
         "bucket_name": opts.get("bucket_name") or config("MINIO_BUCKET_NAME", default="pmt-files"),
-        "endpoint_url": opts.get("endpoint_url") or config(
-            "MINIO_ENDPOINT_URL", default="http://localhost:9000",
-        ),
+        "endpoint_url": endpoint,
     }
 
 
