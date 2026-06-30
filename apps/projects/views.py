@@ -278,6 +278,23 @@ class ProjectViewSet(BaseModelViewSet):
         comments = serializer.validated_data.get("comments", "")
         manager_id = serializer.validated_data.get("manager")
 
+        # Prevent project closure when tickets are still open
+        from django.contrib.contenttypes.models import ContentType
+        from packages.workflow.models import State
+        from apps.tickets.models import Ticket
+
+        ct = ContentType.objects.get_for_model(project)
+        dest_state = State.objects.filter(content_type=ct, slug=dest_slug).first()
+        if dest_state and dest_state.is_final:
+            open_tickets = Ticket.objects.filter(
+                project=project, is_deleted=False, workflow_state__is_final=False
+            )
+            if open_tickets.exists():
+                return Response(
+                    {"error": f"Cannot close project. {open_tickets.count()} ticket(s) are still open. Close or resolve all tickets first."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         old_state_name = project.workflow_state.name if project.workflow_state else None
         old_manager_name = project.manager.full_name if project.manager else None
         try:
