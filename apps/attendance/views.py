@@ -814,6 +814,13 @@ class LeaveTypeListView(APIView):
         types = LeaveType.objects.filter(is_active=True)
         return Response(LeaveTypeSerializer(types, many=True).data)
 
+    @extend_schema(tags=["leave"])
+    def post(self, request):
+        serializer = LeaveTypeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
 
 class MyLeaveBalancesView(APIView):
     permission_classes = [IsAuthenticated]
@@ -839,7 +846,7 @@ class MyLeaveRequestListView(APIView):
 
     @extend_schema(tags=["leave"], request=LeaveRequestSerializer)
     def post(self, request):
-        serializer = LeaveRequestSerializer(data=request.data)
+        serializer = LeaveRequestSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         leave = serializer.save(employee=request.user)
 
@@ -974,6 +981,70 @@ class LeaveAssignView(APIView):
     """HR — assign a leave type's balance to one or more employees for a financial year."""
     permission_classes = [IsAuthenticated, HasKeycloakPermission]
     required_permission = "pmt.hrms.leave.manage"
+
+    def get(self, request):
+        from apps.dashboard.fy_utils import fy_bounds, fy_label, current_fy_start
+        from apps.master.models import Holiday
+        from datetime import timedelta
+        
+        year_param = request.query_params.get("year")
+        if year_param:
+            try:
+                year = int(year_param)
+            except ValueError:
+                return Response({"detail": "Invalid year format."}, status=status.HTTP_400_BAD_REQUEST)
+            
+            start_date, end_date = fy_bounds(year)
+            holidays = set(
+                Holiday.objects.filter(
+                    date__gte=start_date,
+                    date__lte=end_date,
+                    is_active=True,
+                ).values_list("date", flat=True)
+            )
+            
+            working_days = 0
+            current = start_date
+            while current <= end_date:
+                if current.weekday() < 5 and current not in holidays:
+                    working_days += 1
+                current += timedelta(days=1)
+            
+            return Response({
+                "financial_year": year,
+                "fy_label": fy_label(year),
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "total_days": (end_date - start_date).days + 1,
+                "working_days": working_days,
+                "holidays_count": len(holidays),
+            })
+            
+        current_year = current_fy_start()
+        res_years = []
+        for year in range(current_year - 2, current_year + 3):
+            start_date, end_date = fy_bounds(year)
+            holidays = set(
+                Holiday.objects.filter(
+                    date__gte=start_date,
+                    date__lte=end_date,
+                    is_active=True,
+                ).values_list("date", flat=True)
+            )
+            working_days = 0
+            current = start_date
+            while current <= end_date:
+                if current.weekday() < 5 and current not in holidays:
+                    working_days += 1
+                current += timedelta(days=1)
+                
+            res_years.append({
+                "year": year,
+                "label": fy_label(year),
+                "working_days": working_days,
+            })
+            
+        return Response({"available_years": res_years})
 
     def post(self, request):
         from decimal import Decimal, InvalidOperation

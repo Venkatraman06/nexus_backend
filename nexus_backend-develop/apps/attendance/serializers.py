@@ -97,6 +97,82 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
         if data.get("end_date") and data.get("start_date"):
             if data["end_date"] < data["start_date"]:
                 raise serializers.ValidationError("end_date must be ≥ start_date")
+
+        from apps.master.models import Holiday
+        from datetime import timedelta
+
+        start = data["start_date"]
+        end   = data["end_date"]
+        leave_type = data.get("leave_type")
+
+        # Collect holidays in range
+        holidays = set(
+            Holiday.objects.filter(
+                date__gte=start,
+                date__lte=end,
+                is_active=True,
+            ).values_list("date", flat=True)
+        )
+
+        working_days = 0
+        current = start
+        while current <= end:
+            if current.weekday() < 5 and current not in holidays:
+                working_days += 1
+            current += timedelta(days=1)
+
+        if working_days == 0:
+            raise serializers.ValidationError("Your selected date range contains no working days.")
+
+        # ── Leave Quota Validation ──
+        user = None
+        if self.context and "request" in self.context:
+            user = self.context["request"].user
+        elif self.instance and self.instance.employee:
+            user = self.instance.employee
+
+        if user and leave_type:
+            year = start.year
+            from apps.attendance.models import LeaveBalance, LeaveRequestStatus, LeaveRequest
+            from django.db import models as django_models
+            
+            balance = LeaveBalance.objects.filter(
+                employee=user,
+                leave_type=leave_type,
+                year=year
+            ).first()
+            
+            total_days = float(balance.total_days) if balance else float(leave_type.max_days)
+            used_days = float(balance.used_days) if balance else 0.0
+            
+            pending_qs = LeaveRequest.objects.filter(
+                employee=user,
+                leave_type=leave_type,
+                status=LeaveRequestStatus.PENDING,
+                start_date__year=year,
+                is_deleted=False
+            )
+            if self.instance:
+                pending_qs = pending_qs.exclude(pk=self.instance.pk)
+                
+            pending_days = float(pending_qs.aggregate(t=django_models.Sum("days_count"))["t"] or 0.0)
+            
+            if total_days > 0.0:
+                remaining_days = max(0.0, total_days - used_days - pending_days)
+                
+                if remaining_days <= 0.0:
+                    raise serializers.ValidationError(
+                        f"Your yearly leave quota for {leave_type.name} is fully exhausted. "
+                        f"Allocated: {total_days} days, Used: {used_days} days, Pending: {pending_days} days."
+                    )
+                
+                if float(working_days) > remaining_days:
+                    raise serializers.ValidationError(
+                        f"You are requesting {working_days} days of leave, but you only have "
+                        f"{remaining_days} remaining days left in your yearly quota for {leave_type.name}. "
+                        f"Allocated: {total_days} days, Used: {used_days} days, Pending: {pending_days} days."
+                    )
+
         return data
 
 

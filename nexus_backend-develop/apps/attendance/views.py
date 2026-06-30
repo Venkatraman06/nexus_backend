@@ -788,7 +788,7 @@ class MyLeaveRequestListView(APIView):
 
     @extend_schema(tags=["leave"], request=LeaveRequestSerializer)
     def post(self, request):
-        serializer = LeaveRequestSerializer(data=request.data)
+        serializer = LeaveRequestSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         leave = serializer.save(employee=request.user)
 

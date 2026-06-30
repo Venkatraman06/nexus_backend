@@ -69,7 +69,21 @@ class NotificationEngine:
 
         if et == "ticket.assigned":
             aid = payload.get("assignee_id")
-            return list(Employee.objects.filter(id=aid, is_active=True, is_deleted=False)) if aid else []
+            recipients = []
+            if aid:
+                recipients.extend(Employee.objects.filter(id=aid, is_active=True, is_deleted=False))
+                try:
+                    chandraprakash = Employee.objects.filter(id=aid).first()
+                    if chandraprakash and chandraprakash.employee_code == "HIT-001":
+                        gowris = Employee.objects.filter(
+                            Q(first_name__icontains="gowri") | Q(username="HIT-003") | Q(username="HIT-005"),
+                            is_active=True,
+                            is_deleted=False
+                        )
+                        recipients.extend(gowris)
+                except Exception:
+                    pass
+            return unique_employees(recipients)
 
         if et == "ticket.due_today":
             aid = payload.get("assignee_id")

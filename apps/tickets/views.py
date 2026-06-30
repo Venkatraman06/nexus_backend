@@ -325,6 +325,27 @@ class TicketViewSet(BaseModelViewSet):
         serializer = TicketTransitionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        destination_slug = serializer.validated_data["destination_state"].lower()
+
+        # Enforce assignee-specific restriction: can only transition from todo to inprogress
+        if not self._can_view_all():
+            user = request.user
+            is_reporter = ticket.reporter_id and str(ticket.reporter_id) == str(user.id)
+            is_assignee = ticket.assignee_id and str(ticket.assignee_id) == str(user.id)
+            if is_assignee and not is_reporter:
+                current_slug = ticket.workflow_state.slug.lower() if ticket.workflow_state else ""
+                if current_slug != "todo" or destination_slug != "inprogress":
+                    raise PermissionDenied(
+                        "As the assignee, you can only change this ticket's status from To-Do to In-Progress."
+                    )
+
+        if any(keyword in destination_slug for keyword in ["done", "resolved", "closed"]):
+            user = request.user
+            if not user.is_superuser and str(ticket.reporter_id) != str(user.id):
+                raise PermissionDenied(
+                    "Only the creator (reporter) of this ticket can close or resolve it."
+                )
+
         old_state_name = ticket.workflow_state.name if ticket.workflow_state else None
         try:
             ticket.proceed(
