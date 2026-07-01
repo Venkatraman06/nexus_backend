@@ -62,6 +62,10 @@ class PayrollListCreateView(APIView):
         serializer = PayrollSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        # Prevent self-assignment
+        if serializer.validated_data.get("employee") == request.user:
+            return Response({"detail": "You cannot create payroll for yourself."}, status=status.HTTP_400_BAD_REQUEST)
+
         # Auto-compute PF if not provided
         data = serializer.validated_data
         if not data.get("pf") and data.get("basic_salary", 0) > 0:
@@ -110,6 +114,17 @@ class PayrollDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+def is_in_manager_chain(manager, employee):
+    curr = employee
+    visited = set()
+    while curr.manager and curr.manager not in visited:
+        if curr.manager == manager:
+            return True
+        visited.add(curr.manager)
+        curr = curr.manager
+    return False
+
+
 class PayrollApproveView(APIView):
     """Finalize (approve) a payroll — moves DRAFT → FINALIZED."""
     permission_classes = [IsAuthenticated, HasKeycloakPermission]
@@ -125,6 +140,20 @@ class PayrollApproveView(APIView):
         if obj.status != PayrollStatus.DRAFT:
             return Response({"detail": "Only DRAFT payrolls can be finalized."},
                             status=status.HTTP_400_BAD_REQUEST)
+
+        # Disable self-approval
+        if obj.employee == request.user:
+            return Response({"detail": "You cannot approve your own payroll."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Enforce reporting hierarchy
+        if obj.employee.manager is not None:
+            if not is_in_manager_chain(request.user, obj.employee):
+                return Response(
+                    {"detail": "Payroll approvals must follow the reporting hierarchy; you are not in the employee's manager hierarchy."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
         obj.status = PayrollStatus.FINALIZED
         obj.save(update_fields=["status"])
 
@@ -161,6 +190,20 @@ class PayrollMarkPaidView(APIView):
         if obj.status != PayrollStatus.FINALIZED:
             return Response({"detail": "Only FINALIZED payrolls can be marked as PAID."},
                             status=status.HTTP_400_BAD_REQUEST)
+
+        # Disable self-approval
+        if obj.employee == request.user:
+            return Response({"detail": "You cannot mark your own payroll as paid."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Enforce reporting hierarchy
+        if obj.employee.manager is not None:
+            if not is_in_manager_chain(request.user, obj.employee):
+                return Response(
+                    {"detail": "Payroll actions must follow the reporting hierarchy; you are not in the employee's manager hierarchy."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
         obj.status = PayrollStatus.PAID
         obj.save(update_fields=["status"])
         return Response(PayrollSerializer(obj).data)
@@ -238,6 +281,9 @@ class PayrollGenerateView(APIView):
 
         if not all([emp_id, month, year]):
             return Response({"detail": "employee_id, month and year are required."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if str(emp_id) == str(request.user.id):
+            return Response({"detail": "You cannot generate or preview your own payroll."},
                             status=status.HTTP_400_BAD_REQUEST)
         try:
             employee = Employee.objects.select_related(
@@ -320,6 +366,9 @@ class PayrollGenerateView(APIView):
         if not all([emp_id, month, year]):
             return Response({"detail": "employee_id, month and year are required."},
                             status=status.HTTP_400_BAD_REQUEST)
+        if str(emp_id) == str(request.user.id):
+            return Response({"detail": "You cannot generate or preview your own payroll."},
+                            status=status.HTTP_400_BAD_REQUEST)
         try:
             employee = Employee.objects.get(pk=emp_id, is_active=True, is_deleted=False)
         except Employee.DoesNotExist:
@@ -362,7 +411,7 @@ class PayrollBulkGenerateView(APIView):
         employees = Employee.objects.filter(
             is_active=True, is_deleted=False,
             shift_applicable=True,
-        ).select_related("designation_ref", "department_ref")
+        ).exclude(pk=request.user.pk).select_related("designation_ref", "department_ref")
 
         results = {"generated": 0, "updated": 0, "skipped": 0, "errors": []}
         for emp in employees:
