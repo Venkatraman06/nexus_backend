@@ -42,9 +42,20 @@ class S3Storage:
             if e.response["Error"]["Code"] == "404":
                 return None
             raise
+            
+        import mimetypes
+        content_type, _ = mimetypes.guess_type(object_name)
+        if not content_type:
+            content_type = "application/pdf"
+            
         return self.client.generate_presigned_url(
             "get_object",
-            Params={"Bucket": self.bucket_name, "Key": object_name},
+            Params={
+                "Bucket": self.bucket_name,
+                "Key": object_name,
+                "ResponseContentDisposition": "inline",
+                "ResponseContentType": content_type,
+            },
             ExpiresIn=expiry,
         )
 
