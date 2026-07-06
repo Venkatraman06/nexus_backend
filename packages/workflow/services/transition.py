@@ -7,6 +7,7 @@ from packages.workflow.exceptions import WorkflowTransitionError
 # Models where transition group rules are skipped — permission is enforced at the API layer.
 _GROUP_CHECK_BYPASS = {
     ("followups", "followup"),
+    ("tickets", "ticket"),
 }
 
 

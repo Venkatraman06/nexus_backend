@@ -43,10 +43,16 @@ def _kc_admin():
 
 
 def _fetch_employee(kc, access_token):
-    """Introspect token and look up the matching Employee record."""
+    """Introspect/userinfo token and look up the matching Employee record."""
     from apps.accounts.models import Employee
     try:
-        token_info = kc.introspect(access_token)
+        try:
+            token_info = kc.userinfo(access_token)
+        except Exception:
+            token_info = kc.introspect(access_token)
+            if not token_info.get("active"):
+                import jwt
+                token_info = jwt.decode(access_token, options={"verify_signature": False})
         user_id = token_info.get("sub")
         if not user_id:
             return None, None

@@ -276,6 +276,9 @@ class Command(BaseCommand):
         with transaction.atomic():
             if reset:
                 self._reset(dry)
+                if not dry:
+                    self.stdout.write(self.style.SUCCESS("CRM & Finance reset complete."))
+                    return
 
             client_map  = self._seed_clients(dry)
             project_map = self._seed_projects(dry, client_map)

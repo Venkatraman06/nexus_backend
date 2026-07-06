@@ -814,6 +814,13 @@ class LeaveTypeListView(APIView):
         types = LeaveType.objects.filter(is_active=True)
         return Response(LeaveTypeSerializer(types, many=True).data)
 
+    @extend_schema(tags=["leave"])
+    def post(self, request):
+        serializer = LeaveTypeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
 
 class MyLeaveBalancesView(APIView):
     permission_classes = [IsAuthenticated]
@@ -839,7 +846,7 @@ class MyLeaveRequestListView(APIView):
 
     @extend_schema(tags=["leave"], request=LeaveRequestSerializer)
     def post(self, request):
-        serializer = LeaveRequestSerializer(data=request.data)
+        serializer = LeaveRequestSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         leave = serializer.save(employee=request.user)
 
@@ -912,6 +919,43 @@ class LeaveRequestDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+def get_reporting_hierarchy_map(manager):
+    all_employees = list(account_models.Employee.objects.filter(is_active=True, is_deleted=False))
+    
+    by_manager = {}
+    for emp in all_employees:
+        if emp.manager_id:
+            by_manager.setdefault(str(emp.manager_id), []).append(emp)
+            
+    direct = by_manager.get(str(manager.id), [])
+    reporting_map = {}
+    
+    for d in direct:
+        reporting_map[str(d.id)] = "direct"
+        
+    queue = [(d, "indirect") for d in direct]
+    while queue:
+        curr, level = queue.pop(0)
+        children = by_manager.get(str(curr.id), [])
+        for child in children:
+            if str(child.id) not in reporting_map:
+                reporting_map[str(child.id)] = "indirect"
+                queue.append((child, "indirect"))
+                
+    return reporting_map
+
+
+def is_in_manager_chain(manager, employee):
+    curr = employee
+    visited = set()
+    while curr.manager and curr.manager not in visited:
+        if curr.manager == manager:
+            return True
+        visited.add(curr.manager)
+        curr = curr.manager
+    return False
+
+
 class LeaveReviewView(APIView):
     """Project managers can review leave requests of employees assigned to their projects."""
     permission_classes = [IsAuthenticated]
@@ -936,10 +980,18 @@ class LeaveReviewView(APIView):
         if leave.status != LeaveRequestStatus.PENDING:
             return Response({"detail": "Only PENDING requests can be reviewed."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Check if the reviewer is authorized (project manager for this employee)
-        if not self._is_authorized_reviewer(request.user, leave.employee):
+        # Disable self-approval
+        if leave.employee == request.user:
+            return Response({"detail": "You cannot approve your own leave request."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Enforce reporting hierarchy & project manager authorization
+        is_authorized = self._is_authorized_reviewer(request.user, leave.employee)
+        if leave.employee.manager is not None and is_in_manager_chain(request.user, leave.employee):
+            is_authorized = True
+
+        if not is_authorized:
             return Response(
-                {"detail": "You are not authorized to review this leave request. Only project managers of the employee can review."},
+                {"detail": "You are not authorized to review this leave request. Only project managers or reporting managers in the hierarchy can review."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -995,6 +1047,87 @@ class LeaveReviewView(APIView):
 
         return Response(LeaveRequestSerializer(leave).data)
 
+
+class LeaveTeamMetaView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(tags=["leave"])
+    def get(self, request):
+        reporting_map = get_reporting_hierarchy_map(request.user)
+        direct_count = sum(1 for lvl in reporting_map.values() if lvl == "direct")
+        indirect_count = sum(1 for lvl in reporting_map.values() if lvl == "indirect")
+        return Response({
+            "has_team": len(reporting_map) > 0,
+            "direct_count": direct_count,
+            "indirect_count": indirect_count,
+        })
+
+
+class LeaveTeamRequestsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(tags=["leave"])
+    def get(self, request):
+        reporting_map = get_reporting_hierarchy_map(request.user)
+        if not reporting_map:
+            return Response({
+                "pending_count": 0,
+                "direct_count": 0,
+                "indirect_count": 0,
+                "results": [],
+            })
+
+        status_filter = request.query_params.get("status")
+        qs = LeaveRequest.objects.filter(employee_id__in=reporting_map.keys(), is_deleted=False).select_related(
+            "employee", "leave_type"
+        ).order_by("-created_at")
+
+        if status_filter:
+            if status_filter in ("PENDING", "PENDING_MANAGER"):
+                qs = qs.filter(status="PENDING")
+            else:
+                qs = qs.filter(status=status_filter)
+
+        direct_report_ids = [eid for eid, lvl in reporting_map.items() if lvl == "direct"]
+        direct_count = sum(1 for lvl in reporting_map.values() if lvl == "direct")
+        indirect_count = sum(1 for lvl in reporting_map.values() if lvl == "indirect")
+        pending_count = LeaveRequest.objects.filter(
+            employee_id__in=direct_report_ids,
+            status="PENDING",
+            is_deleted=False
+        ).count()
+
+        results = []
+        for lr in qs:
+            lvl = reporting_map[str(lr.employee_id)]
+            can_approve = (lvl == "direct") and (lr.status == "PENDING") and (lr.employee != request.user)
+            results.append({
+                "id": str(lr.id),
+                "employee": lr.employee.full_name,
+                "employee_code": lr.employee.employee_code,
+                "leave_type": lr.leave_type.name,
+                "color": lr.leave_type.color,
+                "start_date": str(lr.start_date),
+                "end_date": str(lr.end_date),
+                "days_count": float(lr.days_count),
+                "reason": lr.reason,
+                "status": lr.status,
+                "acknowledged_by": None,
+                "ack_project": None,
+                "created_at": str(lr.created_at.date()),
+                "reporting_level": lvl,
+                "can_approve": can_approve,
+                "can_view_only": not can_approve,
+            })
+
+        return Response({
+            "pending_count": pending_count,
+            "direct_count": direct_count,
+            "indirect_count": indirect_count,
+            "results": results,
+        })
+
+
 class AdminLeaveRequestListView(APIView):
     """HR / PMO view — all employees' leave requests with summary stats."""
     permission_classes = [IsAuthenticated]
@@ -1037,6 +1170,8 @@ class AdminLeaveRequestListView(APIView):
                 "reviewer":         lr.reviewer.full_name if lr.reviewer_id else None,
                 "reviewer_remarks": lr.reviewer_remarks,
                 "created_at":       str(lr.created_at.date()),
+                "can_approve":      (lr.status == LeaveRequestStatus.PENDING) and (lr.employee != request.user) and (lr.employee.manager is None or is_in_manager_chain(request.user, lr.employee)),
+                "can_ack":          False,
             }
             for lr in qs
         ]
@@ -1049,6 +1184,70 @@ class LeaveAssignView(APIView):
     permission_classes = [IsAuthenticated, HasKeycloakPermission]
     required_permission = "pmt.hrms.leave.manage"
 
+    def get(self, request):
+        from apps.dashboard.fy_utils import fy_bounds, fy_label, current_fy_start
+        from apps.master.models import Holiday
+        from datetime import timedelta
+        
+        year_param = request.query_params.get("year")
+        if year_param:
+            try:
+                year = int(year_param)
+            except ValueError:
+                return Response({"detail": "Invalid year format."}, status=status.HTTP_400_BAD_REQUEST)
+            
+            start_date, end_date = fy_bounds(year)
+            holidays = set(
+                Holiday.objects.filter(
+                    date__gte=start_date,
+                    date__lte=end_date,
+                    is_active=True,
+                ).values_list("date", flat=True)
+            )
+            
+            working_days = 0
+            current = start_date
+            while current <= end_date:
+                if current.weekday() < 5 and current not in holidays:
+                    working_days += 1
+                current += timedelta(days=1)
+            
+            return Response({
+                "financial_year": year,
+                "fy_label": fy_label(year),
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "total_days": (end_date - start_date).days + 1,
+                "working_days": working_days,
+                "holidays_count": len(holidays),
+            })
+            
+        current_year = current_fy_start()
+        res_years = []
+        for year in range(current_year - 2, current_year + 3):
+            start_date, end_date = fy_bounds(year)
+            holidays = set(
+                Holiday.objects.filter(
+                    date__gte=start_date,
+                    date__lte=end_date,
+                    is_active=True,
+                ).values_list("date", flat=True)
+            )
+            working_days = 0
+            current = start_date
+            while current <= end_date:
+                if current.weekday() < 5 and current not in holidays:
+                    working_days += 1
+                current += timedelta(days=1)
+                
+            res_years.append({
+                "year": year,
+                "label": fy_label(year),
+                "working_days": working_days,
+            })
+            
+        return Response({"available_years": res_years})
+
     def post(self, request):
         from decimal import Decimal, InvalidOperation
         from apps.dashboard.fy_utils import current_fy_start, fy_label
@@ -1059,6 +1258,9 @@ class LeaveAssignView(APIView):
         total_days    = data.get("total_days")
         carry_forward = bool(data.get("carry_forward", False))
         employee_ids  = data.get("employee_ids") or []
+
+        if any(str(eid) == str(request.user.id) for eid in employee_ids):
+            return Response({"detail": "You cannot assign leave balance to yourself."}, status=status.HTTP_400_BAD_REQUEST)
 
         errors = {}
         if not leave_type_id:

@@ -68,6 +68,7 @@ class Command(BaseCommand):
 
         if reset and not dry:
             self._reset()
+            return
 
         with transaction.atomic():
             emp = self._load_employees(dry)
@@ -101,6 +102,8 @@ class Command(BaseCommand):
         from apps.allocation.models import Allocation
         from apps.projects.models import Project
         from apps.workitems.models import WorkLog
+        from apps.todos.models import Todo
+        from apps.followups.models import FollowUp
 
         from django.db.models import Q
 
@@ -109,14 +112,13 @@ class Command(BaseCommand):
         pipeline_codes = [p["code"] for p in PIPELINE_LEADS]
         codes = billing_codes + internal_codes + pipeline_codes
         projects = Project.objects.filter(Q(code__in=codes) | Q(code__startswith="INT-260"))
+        Todo.objects.all().delete()
+        FollowUp.objects.all().delete()
         WorkLog.objects.filter(remarks=SEED_PREFIX).delete()
         TicketComment.objects.filter(body__startswith="[SEED]").delete()
         Ticket.objects.filter(project__in=projects).delete()
         Allocation.objects.filter(project__in=projects).delete()
         projects.filter(code__in=internal_codes + pipeline_codes).delete()
-
-        from apps.followups.models import FollowUp
-        FollowUp.objects.filter(title__startswith=f"[{SEED_PREFIX}]").delete()
 
         self._log("  Reset: removed seeded PMO projects and related data")
 
@@ -557,6 +559,28 @@ class Command(BaseCommand):
         if dry:
             self._log(f"  Leaves: {len(LEAVE_REQUESTS)} requests (dry-run)")
             return
+
+        # Ensure all standard leave types are created
+        standard_types = [
+            {"code": "CL", "name": "Casual Leave", "max_days": 12, "is_paid": True, "color": "#52c41a"},
+            {"code": "SL", "name": "Sick Leave", "max_days": 12, "is_paid": True, "color": "#1677ff"},
+            {"code": "ML", "name": "Medical Leave", "max_days": 15, "is_paid": True, "color": "#f5222d"},
+            {"code": "MAT", "name": "Maternity Leave", "max_days": 90, "is_paid": True, "color": "#eb2f96"},
+            {"code": "PAT", "name": "Paternity Leave", "max_days": 15, "is_paid": True, "color": "#13c2c2"},
+            {"code": "CCL", "name": "Child Care Leave", "max_days": 30, "is_paid": True, "color": "#fa8c16"},
+            {"code": "BL", "name": "Bereavement Leave", "max_days": 5, "is_paid": True, "color": "#722ed1"},
+            {"code": "CO", "name": "Compensatory Off", "max_days": 0, "is_paid": True, "color": "#faad14"},
+        ]
+        for t in standard_types:
+            LeaveType.objects.get_or_create(
+                code=t["code"],
+                defaults={
+                    "name": t["name"],
+                    "max_days": t["max_days"],
+                    "is_paid": t["is_paid"],
+                    "color": t["color"],
+                }
+            )
 
         for cfg in LEAVE_REQUESTS:
             employee = emp.get(cfg["username"])

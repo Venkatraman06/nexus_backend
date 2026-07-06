@@ -179,6 +179,31 @@ class TicketDetailSerializer(serializers.ModelSerializer):
     def get_available_states(self, obj):
         try:
             states = obj.get_available_next_states()
+            request = self.context.get("request")
+            user = request.user if request else None
+            if user:
+                is_pmo_admin = False
+                if user.is_staff or getattr(user, "is_superuser", False):
+                    is_pmo_admin = True
+                else:
+                    user_perms = getattr(request, "user_permissions", [])
+                    if "pmt.project.view_all" in user_perms:
+                        is_pmo_admin = True
+
+                is_reporter = str(obj.reporter_id) == str(user.id)
+                is_assignee = obj.assignee_id and str(obj.assignee_id) == str(user.id)
+
+                if is_pmo_admin or is_reporter:
+                    if not getattr(user, "is_superuser", False) and not is_reporter:
+                        states = [s for s in states if not any(keyword in s.slug.lower() for keyword in ["done", "resolved", "closed"])]
+                elif is_assignee:
+                    current_slug = obj.workflow_state.slug.lower() if obj.workflow_state else ""
+                    if current_slug == "todo":
+                        states = [s for s in states if s.slug.lower() == "inprogress"]
+                    else:
+                        states = []
+                else:
+                    states = []
             return [{"id": str(s.id), "name": s.name, "slug": s.slug, "color": s.color_code} for s in states]
         except Exception:
             return []

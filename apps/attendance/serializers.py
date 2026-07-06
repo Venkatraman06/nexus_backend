@@ -140,6 +140,60 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
                 full_msg += "\n\n".join(messages)
             raise serializers.ValidationError(full_msg)
 
+        # ── Leave Quota Validation ──
+        leave_type = data.get("leave_type")
+        user = None
+        if self.context and "request" in self.context:
+            user = self.context["request"].user
+        elif self.instance and self.instance.employee:
+            user = self.instance.employee
+
+        if user and leave_type:
+            year = start.year
+            from apps.attendance.models import LeaveBalance, LeaveRequestStatus, LeaveRequest
+            from django.db import models as django_models
+            
+            # Fetch the employee's balance for this leave type and year
+            balance = LeaveBalance.objects.filter(
+                employee=user,
+                leave_type=leave_type,
+                year=year
+            ).first()
+            
+            # If no balance row exists, assume default max_days from LeaveType
+            total_days = float(balance.total_days) if balance else float(leave_type.max_days)
+            used_days = float(balance.used_days) if balance else 0.0
+            
+            # Calculate other pending requests in the same year (excluding current request if editing)
+            pending_qs = LeaveRequest.objects.filter(
+                employee=user,
+                leave_type=leave_type,
+                status=LeaveRequestStatus.PENDING,
+                start_date__year=year,
+                is_deleted=False
+            )
+            if self.instance:
+                pending_qs = pending_qs.exclude(pk=self.instance.pk)
+                
+            pending_days = float(pending_qs.aggregate(t=django_models.Sum("days_count"))["t"] or 0.0)
+            
+            # Quota validation only applies if the leave type has a limited yearly quota (max_days > 0)
+            if total_days > 0.0:
+                remaining_days = max(0.0, total_days - used_days - pending_days)
+                
+                if remaining_days <= 0.0:
+                    raise serializers.ValidationError(
+                        f"Your yearly leave quota for {leave_type.name} is fully exhausted. "
+                        f"Allocated: {total_days} days, Used: {used_days} days, Pending: {pending_days} days."
+                    )
+                
+                if float(working_days) > remaining_days:
+                    raise serializers.ValidationError(
+                        f"You are requesting {working_days} days of leave, but you only have "
+                        f"{remaining_days} remaining days left in your yearly quota for {leave_type.name}. "
+                        f"Allocated: {total_days} days, Used: {used_days} days, Pending: {pending_days} days."
+                    )
+
         if messages:
             # Has some working days but also selected weekends/holidays — warn but allow
             # Store the working_days count so save() uses it

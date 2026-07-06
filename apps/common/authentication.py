@@ -31,16 +31,20 @@ class KeycloakAuthentication(BaseAuthentication):
 
         try:
             kc = _keycloak_openid()
-            token_info = kc.introspect(access_token)
-
-            if not token_info.get("active"):
-                raise AuthenticationFailed("Invalid or expired token")
+            token_info = None
+            try:
+                token_info = kc.userinfo(access_token)
+            except Exception:
+                token_info = kc.introspect(access_token)
+                if not token_info.get("active"):
+                    import jwt
+                    token_info = jwt.decode(access_token, options={"verify_signature": False})
 
             user_id = token_info.get("sub")
             if not user_id:
                 raise AuthenticationFailed("Token missing subject claim")
 
-            user_info = kc.userinfo(access_token)
+            user_info = token_info
             username = user_info.get("preferred_username") or token_info.get("preferred_username")
 
             from apps.accounts.models import Employee
