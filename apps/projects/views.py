@@ -31,7 +31,7 @@ class ClientViewSet(BaseModelViewSet):
         "update":         "pmt.project.client.update",
         "partial_update": "pmt.project.client.update",
         "destroy":        "pmt.project.client.delete",
-        "dropdown":       "pmt.project.client.view",
+        "dropdown":       "pmt.project.view",
     }
 
     @action(detail=False, methods=["get"], url_path="dropdown")
@@ -131,7 +131,15 @@ class ProjectViewSet(BaseModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         if not self._can_view_all():
-            qs = qs.filter(manager=self.request.user)
+            from django.db.models import Q
+            from apps.allocation.models import Allocation
+            allocated_project_ids = Allocation.objects.filter(
+                employee=self.request.user,
+                is_deleted=False,
+            ).values_list("project_id", flat=True)
+            qs = qs.filter(
+                Q(manager=self.request.user) | Q(id__in=allocated_project_ids)
+            ).distinct()
         return qs
 
     def perform_create(self, serializer):
