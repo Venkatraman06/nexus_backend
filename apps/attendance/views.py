@@ -850,6 +850,13 @@ class MyLeaveRequestListView(APIView):
         serializer.is_valid(raise_exception=True)
         leave = serializer.save(employee=request.user)
 
+        is_ceo = (request.user.designation_ref and request.user.designation_ref.name.lower() == "ceo") or (request.user.designation and request.user.designation.lower() == "ceo")
+        if is_ceo:
+            leave.status = LeaveRequestStatus.APPROVED
+            leave.reviewer = request.user
+            leave.reviewer_remarks = "Auto-approved as CEO"
+            leave.save()
+
         # Get project managers for the employee
         from .leave_utils import get_project_managers_for_employee
         project_managers = get_project_managers_for_employee(request.user)
@@ -980,13 +987,18 @@ class LeaveReviewView(APIView):
         if leave.status != LeaveRequestStatus.PENDING:
             return Response({"detail": "Only PENDING requests can be reviewed."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Disable self-approval
-        if leave.employee == request.user:
+        is_ceo = (request.user.designation_ref and request.user.designation_ref.name.lower() == "ceo") or (request.user.designation and request.user.designation.lower() == "ceo")
+
+        # Disable self-approval for non-CEOs
+        if leave.employee == request.user and not is_ceo:
             return Response({"detail": "You cannot approve your own leave request."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Enforce reporting hierarchy & project manager authorization
         is_authorized = self._is_authorized_reviewer(request.user, leave.employee)
         if leave.employee.manager is not None and is_in_manager_chain(request.user, leave.employee):
+            is_authorized = True
+            
+        if is_ceo and leave.employee == request.user:
             is_authorized = True
 
         if not is_authorized:
@@ -1259,7 +1271,8 @@ class LeaveAssignView(APIView):
         carry_forward = bool(data.get("carry_forward", False))
         employee_ids  = data.get("employee_ids") or []
 
-        if any(str(eid) == str(request.user.id) for eid in employee_ids):
+        is_ceo = (request.user.designation_ref and request.user.designation_ref.name.lower() == "ceo") or (request.user.designation and request.user.designation.lower() == "ceo")
+        if any(str(eid) == str(request.user.id) for eid in employee_ids) and not is_ceo:
             return Response({"detail": "You cannot assign leave balance to yourself."}, status=status.HTTP_400_BAD_REQUEST)
 
         errors = {}
@@ -1733,7 +1746,7 @@ class EmployeeShiftView(APIView):
         from .models import EmployeeShift
 
         qs = EmployeeShift.objects.filter(is_deleted=False).select_related(
-            "employee", "employee__department_ref", "shift",
+            "employee", "employee__department_ref", "employee__employment_type", "shift",
         ).order_by("-effective_from")
 
         emp_id = request.query_params.get("employee")
@@ -1757,7 +1770,7 @@ class EmployeeShiftView(APIView):
                 "effective_from":  es.effective_from.isoformat(),
                 "effective_to":    es.effective_to.isoformat() if es.effective_to else None,
                 "job_type":        es.job_type,
-                "employment_type": getattr(emp, "employment_type", None),
+                "employment_type": emp.employment_type.name if emp.employment_type_id else None,
             })
 
         return Response({"count": len(results), "results": results})
