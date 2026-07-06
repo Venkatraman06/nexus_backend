@@ -325,11 +325,29 @@ class TicketViewSet(BaseModelViewSet):
         serializer = TicketTransitionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        dest_slug = serializer.validated_data["destination_state"]
+
+        # Prevent parent ticket closure when child tickets are still open
+        from django.contrib.contenttypes.models import ContentType
+        from packages.workflow.models import State
+
+        ct = ContentType.objects.get_for_model(ticket)
+        dest_state = State.objects.filter(content_type=ct, slug=dest_slug).first()
+        if dest_state and dest_state.is_final:
+            open_children = ticket.children.filter(
+                is_deleted=False, workflow_state__is_final=False
+            )
+            if open_children.exists():
+                return Response(
+                    {"error": f"Cannot close this ticket. {open_children.count()} child ticket(s) are still open. Close or resolve all child tickets first."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         old_state_name = ticket.workflow_state.name if ticket.workflow_state else None
         try:
             ticket.proceed(
                 user=request.user,
-                destination_slug=serializer.validated_data["destination_state"],
+                destination_slug=dest_slug,
                 comments=serializer.validated_data.get("comments", ""),
             )
         except WorkflowTransitionError as exc:

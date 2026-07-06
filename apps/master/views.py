@@ -263,6 +263,79 @@ class LeaveBalanceAssignView(APIView):
 from .models import Holiday
 from .serializers import HolidaySerializer
 
+
+class CreateMyLeaveTypeView(APIView):
+    """
+    Self-service: an employee can create a custom leave type and auto-assign
+    it to themselves with a default balance of `max_days` days.
+    POST /master/leave/my-types/  { name, code, max_days, is_paid, color }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from decimal import Decimal
+        from datetime import date
+        from django.db import transaction
+
+        data = request.data
+        name     = data.get("name", "").strip()
+        code     = data.get("code", "").strip().upper()
+        max_days = int(data.get("max_days", 0) or 0)
+        is_paid  = bool(data.get("is_paid", True))
+        color    = data.get("color", "#1677ff").strip()
+
+        if not name or not code:
+            return Response({"detail": "Name and code are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(code) > 20:
+            return Response({"detail": "Code must be 20 characters or fewer."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if LeaveType.objects.filter(code=code).exists():
+            return Response({"detail": f"A leave type with code '{code}' already exists."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if LeaveType.objects.filter(name__iexact=name).exists():
+            return Response({"detail": f"A leave type named '{name}' already exists."}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            lt = LeaveType.objects.create(
+                name=name,
+                code=code,
+                max_days=max_days,
+                is_paid=is_paid,
+                color=color,
+                is_active=True,
+            )
+
+            # Create a policy rule for the current year
+            year = date.today().year
+            total = max_days if max_days > 0 else 10  # default 10 if unlimited
+            LeavePolicyRule.objects.create(
+                leave_type=lt,
+                total_days=Decimal(str(total)),
+                carry_forward=False,
+                carry_forward_limit=0,
+                applicable_to="ALL",
+                effective_from=year,
+                effective_to=year,
+                loss_of_pay_after=0,
+                auto_allocate=True,
+                notes=f"Self-created by {request.user.full_name}",
+            )
+
+            # Auto-assign balance to the current user
+            LeaveBalance.objects.get_or_create(
+                employee=request.user,
+                leave_type=lt,
+                year=year,
+                defaults={"total_days": Decimal(str(total)), "used_days": 0},
+            )
+
+        return Response(
+            LeaveTypeSerializer(lt).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class HolidayViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated, HasKeycloakPermission]
     PERMISSION_MAP     = _HRMS_MASTER_PERMS

@@ -112,6 +112,26 @@ class TicketListSerializer(serializers.ModelSerializer):
         return obj.children.filter(is_deleted=False).count()
 
 
+def _get_all_descendant_ids(ticket, visited=None):
+    """Return a set of all descendant ticket IDs (recursive) for a given ticket.
+    Uses a visited set to prevent infinite recursion from circular references."""
+    if visited is None:
+        visited = set()
+    ticket_id_str = str(ticket.id)
+    if ticket_id_str in visited:
+        return set()  # cycle detected — stop
+    visited.add(ticket_id_str)
+
+    ids = set()
+    children = ticket.children.filter(is_deleted=False).only("id", "parent_id")
+    for child in children:
+        child_id_str = str(child.id)
+        if child_id_str not in ids and child_id_str not in visited:
+            ids.add(child_id_str)
+            ids.update(_get_all_descendant_ids(child, visited))
+    return ids
+
+
 class TicketDetailSerializer(serializers.ModelSerializer):
     assignee_name = serializers.SerializerMethodField()
     reporter_name = serializers.SerializerMethodField()
@@ -123,6 +143,7 @@ class TicketDetailSerializer(serializers.ModelSerializer):
     available_states = serializers.SerializerMethodField()
     parent_ticket_id = serializers.CharField(source="parent.ticket_id", read_only=True, default=None)
     parent_title = serializers.CharField(source="parent.title", read_only=True, default=None)
+    excluded_parent_ids = serializers.SerializerMethodField()
     attachments = TicketAttachmentSerializer(many=True, read_only=True)
     notify_users_info = serializers.SerializerMethodField()
     logged_hours = serializers.FloatField(read_only=True)
@@ -136,12 +157,18 @@ class TicketDetailSerializer(serializers.ModelSerializer):
             "available_states",
             "project", "project_name", "project_code",
             "assignee", "assignee_name", "reporter", "reporter_name",
-            "parent", "parent_ticket_id", "parent_title",
+            "parent", "parent_ticket_id", "parent_title", "excluded_parent_ids",
             "due_date", "original_estimate", "logged_hours", "remaining_hours",
             "approved", "notify_users", "notify_users_info",
             "attachments",
             "created_at", "updated_at",
         ]
+
+    def get_excluded_parent_ids(self, obj):
+        """Return list of ticket IDs that cannot be selected as parent (self + all descendants)."""
+        excluded = {str(obj.id)}
+        excluded.update(_get_all_descendant_ids(obj))
+        return list(excluded)
 
     def get_assignee_name(self, obj):
         return obj.assignee.full_name if obj.assignee else None
@@ -173,6 +200,7 @@ class TicketCreateSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, data):
+        # 1. Project constraint validation (due_date, original_estimate)
         project = data.get("project") or (self.instance.project if self.instance else None)
 
         if self.instance:
@@ -189,6 +217,18 @@ class TicketCreateSerializer(serializers.ModelSerializer):
                 due_date=data.get("due_date"),
                 original_estimate=data.get("original_estimate"),
             )
+
+        # 2. Circular parent-child reference check
+        parent = data.get("parent")
+        if parent and self.instance:
+            current = parent
+            while current is not None:
+                if current.pk == self.instance.pk:
+                    raise serializers.ValidationError(
+                        {"parent": "Circular reference detected. A ticket's descendant cannot be selected as its parent."}
+                    )
+                current = current.parent
+
         return data
 
     def create(self, validated_data):

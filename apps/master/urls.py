@@ -9,7 +9,8 @@ from .views import (
     ClientCategoryViewSet, ClientCategoryDropdownView,
     BusinessTypeViewSet, BusinessTypeDropdownView,
     BillingTypeViewSet, BillingTypeDropdownView,
-    LeaveTypeViewSet, LeavePolicyRuleViewSet, LeaveBalanceAssignView,HolidayViewSet
+    LeaveTypeViewSet, LeavePolicyRuleViewSet, LeaveBalanceAssignView,
+    CreateMyLeaveTypeView, HolidayViewSet,
 )
 
 router = DefaultRouter()
@@ -39,6 +40,5 @@ urlpatterns = router.urls + [
     path("master/dropdown/business-types/",     BusinessTypeDropdownView.as_view(),   name="dropdown-business-types"),
     path("master/dropdown/billing-types/",      BillingTypeDropdownView.as_view(),    name="dropdown-billing-types"),
     path("master/leave/balances/assign/",        LeaveBalanceAssignView.as_view(),     name="leave-balance-assign"),
-
-    
+    path("master/leave/my-types/",                CreateMyLeaveTypeView.as_view(),      name="leave-my-types"),
 ]
