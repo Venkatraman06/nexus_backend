@@ -850,6 +850,11 @@ class MyLeaveRequestListView(APIView):
         serializer.is_valid(raise_exception=True)
         leave = serializer.save(employee=request.user)
 
+        # Get project managers for the employee
+        from .leave_utils import get_project_managers_for_employee
+        project_managers = get_project_managers_for_employee(request.user)
+        
+        # Send notification to HR/admin (existing behavior)
         from apps.notifications.constants import EventType, ReferenceType
         from apps.notifications.publisher import publish_event
         publish_event(
@@ -867,6 +872,28 @@ class MyLeaveRequestListView(APIView):
             actor_id=str(request.user.id),
             async_delivery=True,
         )
+        
+        # Send notifications to project managers
+        if project_managers:
+            for manager in project_managers:
+                publish_event(
+                    EventType.LEAVE_REQUESTED,
+                    ReferenceType.LEAVE,
+                    str(leave.id),
+                    payload={
+                        "employee_id": str(request.user.id),
+                        "employee_name": request.user.full_name,
+                        "leave_type": leave.leave_type.name if leave.leave_type else "",
+                        "start_date": leave.start_date.isoformat(),
+                        "end_date": leave.end_date.isoformat(),
+                        "days_count": leave.days_count,
+                        "notification_target": "project_manager",
+                        "project_manager_id": str(manager.id),
+                    },
+                    actor_id=str(request.user.id),
+                    recipient_id=str(manager.id),  # Specific recipient for project managers
+                    async_delivery=True,
+                )
 
         return Response(LeaveRequestSerializer(leave).data, status=status.HTTP_201_CREATED)
 
@@ -930,8 +957,18 @@ def is_in_manager_chain(manager, employee):
 
 
 class LeaveReviewView(APIView):
-    """PMO/manager reviews a leave request."""
+    """Project managers can review leave requests of employees assigned to their projects."""
     permission_classes = [IsAuthenticated]
+
+    def _is_authorized_reviewer(self, reviewer, employee):
+        """Check if the reviewer is a project manager for the employee."""
+        from .leave_utils import get_project_managers_for_employee
+        
+        # Get project managers for the employee
+        project_managers = get_project_managers_for_employee(employee)
+        
+        # Check if reviewer is one of the project managers
+        return any(manager.id == reviewer.id for manager in project_managers)
 
     @extend_schema(tags=["leave"], request=LeaveReviewSerializer)
     def post(self, request, pk):
@@ -947,13 +984,16 @@ class LeaveReviewView(APIView):
         if leave.employee == request.user:
             return Response({"detail": "You cannot approve your own leave request."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Enforce reporting hierarchy
-        if leave.employee.manager is not None:
-            if not is_in_manager_chain(request.user, leave.employee):
-                return Response(
-                    {"detail": "Leave approvals must follow the reporting hierarchy; you are not in the employee's manager hierarchy."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        # Enforce reporting hierarchy & project manager authorization
+        is_authorized = self._is_authorized_reviewer(request.user, leave.employee)
+        if leave.employee.manager is not None and is_in_manager_chain(request.user, leave.employee):
+            is_authorized = True
+
+        if not is_authorized:
+            return Response(
+                {"detail": "You are not authorized to review this leave request. Only project managers or reporting managers in the hierarchy can review."},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
         serializer = LeaveReviewSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -974,6 +1014,36 @@ class LeaveReviewView(APIView):
                 )
                 balance.used_days = float(balance.used_days) + float(leave.days_count)
                 balance.save(update_fields=["used_days"])
+
+        # Send notification about the review decision
+        from apps.notifications.constants import EventType, ReferenceType
+        from apps.notifications.publisher import publish_event
+        
+        if leave.status == LeaveRequestStatus.APPROVED:
+            event_type = EventType.LEAVE_APPROVED
+        else:
+            event_type = EventType.LEAVE_REJECTED
+            
+        publish_event(
+            event_type,
+            ReferenceType.LEAVE,
+            str(leave.id),
+            payload={
+                "employee_id": str(leave.employee.id),
+                "employee_name": leave.employee.full_name,
+                "reviewer_id": str(request.user.id),
+                "reviewer_name": request.user.full_name,
+                "leave_type": leave.leave_type.name if leave.leave_type else "",
+                "start_date": leave.start_date.isoformat(),
+                "end_date": leave.end_date.isoformat(),
+                "days_count": leave.days_count,
+                "status": leave.status,
+                "remarks": leave.reviewer_remarks,
+            },
+            actor_id=str(request.user.id),
+            recipient_id=str(leave.employee.id),  # Notify the employee
+            async_delivery=True,
+        )
 
         return Response(LeaveRequestSerializer(leave).data)
 

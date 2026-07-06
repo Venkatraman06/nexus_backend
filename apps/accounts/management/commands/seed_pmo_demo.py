@@ -489,9 +489,70 @@ class Command(BaseCommand):
             approved += 1
         self._log(f"  Timesheets: {approved} weeks approved by manager")
 
+    def _seed_leave_types(self, dry, emp):
+        """Seed predefined leave types as master data."""
+        from apps.master.models import LeaveType
+        from apps.attendance.models import LeavePolicyRule
+
+        PREDEFINED_LEAVE_TYPES = [
+            {"code": "ML",  "name": "Medical Leave",           "max_days": 30,  "is_paid": True,  "color": "#dc2626", "total_days": 12,
+             "notes": "For longer-term illnesses, surgeries, or specialized treatments. Doctor's certificate required."},
+            {"code": "CL",  "name": "Casual Leave",            "max_days": 12,  "is_paid": True,  "color": "#f59e0b", "total_days": 12,
+             "notes": "Time off for sudden personal situations or minor health issues. 1-2 days at a time."},
+            {"code": "SL",  "name": "Sick Leave",             "max_days": 12,  "is_paid": True,  "color": "#ef4444", "total_days": 12,
+             "notes": "For illness or medical appointments."},
+            {"code": "MAT", "name": "Maternity Leave",          "max_days": 180, "is_paid": True,  "color": "#ec4899", "total_days": 180,
+             "notes": "Paid leave for female employees during pregnancy, childbirth, and postpartum recovery."},
+            {"code": "PAT", "name": "Paternity Leave",          "max_days": 15,  "is_paid": True,  "color": "#3b82f6", "total_days": 15,
+             "notes": "Paid/unpaid leave for fathers to care for partner and newborn, or during adoption."},
+            {"code": "CCL", "name": "Child Care Leave",         "max_days": 30,  "is_paid": True,  "color": "#14b8a6", "total_days": 30,
+             "notes": "Granted to parents to take time off to care for sick or dependent children."},
+            {"code": "BRL", "name": "Bereavement Leave",         "max_days": 7,   "is_paid": True,  "color": "#6b7280", "total_days": 7,
+             "notes": "Time off to deal with the death or serious illness of an immediate family member."},
+            {"code": "COMP","name": "Compensatory Off (Comp-Off)", "max_days": 30, "is_paid": True, "color": "#8b5cf6", "total_days": 30,
+             "notes": "Time off taken as a reward for previously working on weekends, holidays, or overtime. Can be used when sick leave exhausted."},
+        ]
+
+        if dry:
+            self._log(f"  Leave Types: {len(PREDEFINED_LEAVE_TYPES)} types (dry-run)")
+            return
+
+        for cfg in PREDEFINED_LEAVE_TYPES:
+            lt, created = LeaveType.objects.get_or_create(
+                code=cfg["code"],
+                defaults={
+                    "name": cfg["name"],
+                    "max_days": cfg["max_days"],
+                    "is_paid": cfg["is_paid"],
+                    "color": cfg["color"],
+                    "is_active": True,
+                },
+            )
+            self._log(f"  Leave Type: {lt.code} – {lt.name} ({'created' if created else 'exists'})")
+
+            # Seed a default policy rule if none exists
+            year = datetime.date.today().year
+            if not LeavePolicyRule.objects.filter(leave_type=lt, effective_from=year).exists():
+                LeavePolicyRule.objects.create(
+                    leave_type=lt,
+                    total_days=cfg["total_days"],
+                    carry_forward=False,
+                    carry_forward_limit=0,
+                    applicable_to="ALL",
+                    effective_from=year,
+                    effective_to=year,
+                    loss_of_pay_after=0,
+                    auto_allocate=True,
+                    notes=cfg["notes"],
+                )
+                self._log(f"    → Policy rule seeded: {cfg['total_days']} days for {year}")
+
     def _seed_leaves(self, dry, emp):
         from apps.attendance.models import LeaveRequest, LeaveRequestStatus
         from apps.master.models import LeaveType
+
+        # First seed all predefined leave types
+        self._seed_leave_types(dry, emp)
 
         hr = emp.get("HIT-004")
         created = 0
@@ -528,7 +589,7 @@ class Command(BaseCommand):
             lt, _ = LeaveType.objects.get_or_create(
                 code=cfg["leave_code"],
                 defaults={
-                    "name": {"CL": "Casual Leave", "SL": "Sick Leave"}.get(cfg["leave_code"], cfg["leave_code"]),
+                    "name": {"CL": "Casual Leave", "SL": "Sick Leave", "ML": "Medical Leave"}.get(cfg["leave_code"], cfg["leave_code"]),
                     "max_days": 12,
                     "is_paid": True,
                 },
