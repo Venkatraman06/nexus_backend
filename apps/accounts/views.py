@@ -22,7 +22,15 @@ from .group_config import resolve_group_flags
 
 logger = logging.getLogger(__name__)
 
-KEYCLOAK_DEFAULT_GROUPS = ["hr", "des-admin", "admin", "officer", "employee", "finance team"]
+KEYCLOAK_DEFAULT_GROUPS = [
+    "Admin",
+    "CEO/Founder",
+    "HR Admin",
+    "PM/Solution Architect",
+    "Employee",
+    "Finance Team",
+    "Sales/Marketing Team",
+]
 
 from apps.common.permissions_catalog import get_all_pmt_permission_names_safe
 

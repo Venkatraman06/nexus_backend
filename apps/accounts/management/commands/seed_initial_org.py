@@ -60,6 +60,20 @@ _DEFAULT_ADMIN_EMAIL = "ceo@hackersinfotech.com"
 DATA_DIR = Path(__file__).resolve().parents[4] / "data"
 ORG_PROFILE_PATH = DATA_DIR / "org_profile.json"
 
+# ── Organisational roles (Keycloak groups) to provision ───────────────────────
+#
+# These map 1-to-1 with the groups defined in role_permissions.json.
+# The list is ordered by privilege level (highest first).
+ORG_ROLES = [
+    "Admin",                    # 1 – Full system access (*)
+    "CEO/Founder",              # 2 – Executive: all dashboards + finance + HR visibility
+    "HR Admin",                 # 3 – HRMS management
+    "PM/Solution Architect",    # 4 – Project + CRM + limited finance
+    "Employee",                 # 5 – Standard employee self-service
+    "Finance Team",             # 6 – Finance & billing focused
+    "Sales/Marketing Team",     # 7 – CRM & lead-gen focused
+]
+
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -183,6 +197,20 @@ class _KeycloakAdminHelper:
             if "409" not in str(exc) and "Conflict" not in str(exc):
                 logger.warning("group_user_add failed (%s → %s): %s", kc_id, group_name, exc)
 
+    def ensure_group(self, group_name: str) -> str:
+        """Create the Keycloak group if it doesn't exist; return its ID."""
+        if group_name in self._group_map:
+            return self._group_map[group_name]
+        try:
+            self._admin.create_group({"name": group_name})
+        except Exception as exc:
+            # 409 Conflict means already exists — harmless
+            if "409" not in str(exc) and "Conflict" not in str(exc):
+                raise
+        # Refresh group map after creation
+        self._load_groups()
+        return self._group_map.get(group_name, "")
+
     def delete_user_by_username(self, username: str) -> bool:
         users = self._admin.get_users({"username": username, "exact": True})
         if users:
@@ -256,21 +284,47 @@ class Command(BaseCommand):
         self.stdout.write(f"   GST  : {org_gst or '(not set)'}")
         self.stdout.write(f"   Logo : {logo_relative or '(not provided)'}")
 
-        # ── Step 3 : Permissions & group setup ───────────────────────────────
+        # ── Step 3 : Permission catalog ──────────────────────────────────────
         if not skip_kc and not skip_perm:
             self.stdout.write(self.style.HTTP_INFO("\n→ Pushing permission catalog to Keycloak …"))
             call_command("create_permissions")
-            self.stdout.write(self.style.HTTP_INFO("→ Assigning permissions to Keycloak groups …"))
-            call_command("assign_role_permissions")
-            self.stdout.write(self.style.SUCCESS("✔  Permissions synced to Keycloak Admin group (all *)."))
+            self.stdout.write(self.style.SUCCESS("✔  Permission catalog synced to Keycloak."))
 
-        # ── Step 4 : KC provisioning ──────────────────────────────────────────
+        # ── Step 4 : KC provisioning (groups + CEO user) ─────────────────────
         kc_id = None
         if not skip_kc:
             self.stdout.write(self.style.HTTP_INFO("\n→ Connecting to Keycloak …"))
             try:
                 kc = _KeycloakAdminHelper()
 
+                # 4a – Ensure all organisational groups exist ─────────────────
+                self.stdout.write(self.style.HTTP_INFO("→ Provisioning organisational roles (groups) …"))
+                created_groups: list[str] = []
+                skipped_groups: list[str] = []
+                for role_name in ORG_ROLES:
+                    existing_id = kc._group_map.get(role_name)
+                    kc.ensure_group(role_name)
+                    if existing_id:
+                        skipped_groups.append(role_name)
+                    else:
+                        created_groups.append(role_name)
+
+                if created_groups:
+                    self.stdout.write(self.style.SUCCESS(
+                        f"  ✔  Created  : {', '.join(created_groups)}"
+                    ))
+                if skipped_groups:
+                    self.stdout.write(
+                        f"  ·  Already existed: {', '.join(skipped_groups)}"
+                    )
+
+                # 4b – Assign permissions to all groups ───────────────────────
+                if not skip_perm:
+                    self.stdout.write(self.style.HTTP_INFO("→ Assigning permissions to Keycloak groups …"))
+                    call_command("assign_role_permissions")
+                    self.stdout.write(self.style.SUCCESS("✔  Permissions assigned to all groups."))
+
+                # 4c – Provision CEO user ─────────────────────────────────────
                 if do_reset:
                     deleted = kc.delete_user_by_username(admin_email)
                     if deleted:
@@ -320,7 +374,10 @@ class Command(BaseCommand):
             except Exception as exc:
                 self.stdout.write(self.style.WARNING(f"  ⚠  Sync warning (non-fatal): {exc}"))
 
-        # ── Done ──────────────────────────────────────────────────────────────
+        # ── Done ────────────────────────────────────────────────────────────────
+        roles_display = "\n".join(
+            f"  {i+1:>2}. {r}" for i, r in enumerate(ORG_ROLES)
+        )
         self.stdout.write(self.style.SUCCESS(
             "\n╔══════════════════════════════════════════════╗\n"
             "║   ✔  Initial seed complete!                  ║\n"
@@ -338,6 +395,10 @@ class Command(BaseCommand):
   KC Group     : {CEO_KC_GROUP}  → ALL permissions (pmt.*)
   Django flags : is_staff=True | is_superuser=True | is_pmo=True | is_manager=True
   Company      : {org_name}
+
+  Organisational Roles (Keycloak Groups)
+  ──────────────────────────────────────
+{roles_display}
 
   Login at   → http://localhost:3000/pmt
   API docs   → http://localhost:8000/pmt/api/docs/
