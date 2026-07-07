@@ -54,7 +54,14 @@
     "pmt.workspace.calendar.view",
     "pmt.social_feed.view",
     "pmt.social_feed.create",
-    "pmt.social_feed.manage"
+    "pmt.social_feed.manage",
+    "pmt.master.client.create",
+    "pmt.master.client.update",
+    "pmt.master.client.delete",
+    "pmt.master.project.create",
+    "pmt.master.project.update",
+    "pmt.master.project.delete",
+    "pmt.master.workflow.manage"
   ],
   "HR Admin": [
     "pmt.dashboard.own.view",
@@ -139,7 +146,14 @@
     "pmt.workspace.calendar.view",
     "pmt.social_feed.view",
     "pmt.social_feed.create",
-    "pmt.role.view"
+    "pmt.role.view",
+    "pmt.master.client.create",
+    "pmt.master.client.update",
+    "pmt.master.client.delete",
+    "pmt.master.project.create",
+    "pmt.master.project.update",
+    "pmt.master.project.delete",
+    "pmt.master.workflow.manage"
   ],
   "Employee": [
     "pmt.dashboard.own.view",
