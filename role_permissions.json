@@ -61,7 +61,11 @@
     "pmt.master.project.create",
     "pmt.master.project.update",
     "pmt.master.project.delete",
-    "pmt.master.workflow.manage"
+    "pmt.master.workflow.manage",
+    "pmt.crm.followup.create",
+    "pmt.crm.followup.update",
+    "pmt.crm.followup.delete",
+    "pmt.crm.followup.transition"
   ],
   "HR Admin": [
     "pmt.dashboard.own.view",

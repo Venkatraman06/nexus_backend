@@ -7,10 +7,10 @@ def _csv_set(env_key: str, default: str) -> set:
 
 
 # Groups that grant is_pmo=True — override via .env KC_PMO_GROUPS
-PMO_GROUPS: set = _csv_set("KC_PMO_GROUPS", "admin,des-admin")
+PMO_GROUPS: set = _csv_set("KC_PMO_GROUPS", "admin,des-admin,pm/solution architect,ceo/founder")
 
 # Groups that grant is_manager=True — override via .env KC_MANAGER_GROUPS
-MANAGER_GROUPS: set = _csv_set("KC_MANAGER_GROUPS", "admin,hr,officer")
+MANAGER_GROUPS: set = _csv_set("KC_MANAGER_GROUPS", "admin,hr,officer,hr admin,pm/solution architect,ceo/founder")
 
 
 def resolve_group_flags(group_name: str) -> dict:
