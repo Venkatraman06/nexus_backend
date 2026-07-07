@@ -91,23 +91,18 @@ DEPARTMENTS_TO_SEED = [
 DESIGNATIONS_TO_SEED = [
     "CEO",
     "Director",
-    "VP of Engineering",
-    "PM/Solution Architect",
-    "Tech Lead",
-    "Senior Software Engineer",
-    "Software Engineer",
-    "Associate Software Engineer",
+    "General Manager",
+    "Senior Manager",
+    "Manager",
+    "Assistant Manager",
+    "Team Lead",
+    "Senior Executive",
+    "Executive",
+    "Associate",
+    "Junior Associate",
+    "Trainee",
     "Intern",
-    "HR Manager",
-    "HR Executive",
-    "Finance Manager",
-    "Finance Executive",
-    "Sales/Marketing Lead",
-    "Sales Executive",
-    "QA Lead",
-    "QA Engineer",
-    "UI/UX Designer",
-    "System Administrator",
+    "Consultant",
 ]
 
 
@@ -336,6 +331,10 @@ class Command(BaseCommand):
                 _, created = Designation.objects.get_or_create(name=desig_name)
                 if created:
                     desig_created += 1
+
+            # Clean up old data not in seed lists
+            Department.objects.exclude(name__in=DEPARTMENTS_TO_SEED).delete()
+            Designation.objects.exclude(name__in=DESIGNATIONS_TO_SEED).delete()
                     
             self.stdout.write(self.style.SUCCESS(
                 f"✔  Master seeding complete: {dept_created} new department(s), {desig_created} new designation(s)."
