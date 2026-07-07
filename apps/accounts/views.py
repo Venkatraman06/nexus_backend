@@ -147,6 +147,8 @@ class EmployeeViewSet(BaseModelViewSet):
             group_name = data.get("keycloak_group", "")
             if group_name and keycloak_id:
                 _assign_keycloak_group(admin, keycloak_id, group_name)
+                from packages.keycloak.permissions import invalidate_permissions_cache
+                invalidate_permissions_cache(keycloak_id)
         except Exception as exc:
             logger.warning("Keycloak user creation failed for %s: %s", username, exc)
 
@@ -161,21 +163,27 @@ class EmployeeViewSet(BaseModelViewSet):
             **{k: v for k, v in data.items() if k not in ("username",)},
         )
 
-        # Send welcome / onboarding email with set-password link
+        # Send welcome / onboarding email with set-password link (asynchronously to prevent timeouts)
         if keycloak_id and emp.email:
             try:
                 from django.conf import settings
                 from apps.accounts.password_reset_service import create_onboard_token
                 from apps.accounts.email_service import send_welcome_onboard_email
+                import threading
 
                 token = create_onboard_token(str(emp.id), keycloak_id)
                 reset_link = f"{settings.FRONTEND_APP_URL}/set-password?token={token}"
-                send_welcome_onboard_email(
-                    to=emp.email,
-                    full_name=emp.full_name or username,
-                    username=username,
-                    reset_link=reset_link,
+                
+                thread = threading.Thread(
+                    target=send_welcome_onboard_email,
+                    kwargs={
+                        "to": emp.email,
+                        "full_name": emp.full_name or username,
+                        "username": username,
+                        "reset_link": reset_link,
+                    }
                 )
+                thread.start()
             except Exception as exc:
                 logger.warning("Onboarding email failed for %s: %s", username, exc)
 
@@ -197,6 +205,21 @@ class EmployeeViewSet(BaseModelViewSet):
         out = EmployeeDetailSerializer(emp, context=self.get_serializer_context())
         return Response(out.data, status=status.HTTP_201_CREATED)
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.keycloak_id:
+            try:
+                from apps.accounts.auth_views import _kc_admin
+                admin = _kc_admin()
+                admin.delete_user(instance.keycloak_id)
+                from packages.keycloak.permissions import invalidate_permissions_cache
+                invalidate_permissions_cache(instance.keycloak_id)
+            except Exception as exc:
+                logger.warning("Failed to delete Keycloak user %s during employee delete: %s", instance.keycloak_id, exc)
+
+        instance.soft_delete(user=request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     def partial_update(self, request, *args, **kwargs):
         # If keycloak_group is being changed, inject derived flags into the request data
         group_name = request.data.get("keycloak_group")
@@ -214,6 +237,8 @@ class EmployeeViewSet(BaseModelViewSet):
                 try:
                     from apps.accounts.auth_views import _kc_admin
                     _assign_keycloak_group(_kc_admin(), instance.keycloak_id, group_name)
+                    from packages.keycloak.permissions import invalidate_permissions_cache
+                    invalidate_permissions_cache(instance.keycloak_id)
                 except Exception as exc:
                     logger.warning("Keycloak group update failed for %s: %s", instance.username, exc)
         return response
