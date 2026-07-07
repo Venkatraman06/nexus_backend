@@ -75,13 +75,16 @@ class KeycloakSyncService:
     # ── Public API ────────────────────────────────────────────────────────────
 
     def sync_all(self) -> dict:
-        created = updated = skipped = errors = 0
+        created = updated = skipped = errors = deleted = 0
 
         self._load_groups()
 
         try:
             users = self.admin.get_users({})
             logger.info("Keycloak sync: %d users found", len(users))
+
+            # Store active user IDs from Keycloak for comparison
+            kc_user_ids = {u.get("id") for u in users if u.get("id")}
 
             for kc_user in users:
                 kc_id = kc_user.get("id")
@@ -120,11 +123,23 @@ class KeycloakSyncService:
                     logger.error("Failed to sync user %s: %s", kc_id, exc)
                     errors += 1
 
+            # Soft-delete Django employees whose keycloak_id is no longer in Keycloak
+            db_employees = Employee._base_manager.filter(keycloak_id__isnull=False, is_deleted=False)
+            for emp in db_employees:
+                if emp.keycloak_id not in kc_user_ids:
+                    # Never soft-delete the seeded CEO
+                    if emp.employee_code == "HIT-CEO":
+                        continue
+                    emp.is_deleted = True
+                    emp.is_active = False
+                    emp.save(update_fields=["is_deleted", "is_active"])
+                    deleted += 1
+
         except Exception as exc:
             logger.error("Keycloak sync failed: %s", exc)
             raise
 
-        return {"created": created, "updated": updated, "skipped": skipped, "errors": errors}
+        return {"created": created, "updated": updated, "skipped": skipped, "errors": errors, "deleted": deleted}
 
     def sync_one(self, keycloak_id: str) -> Employee:
         self._load_groups()

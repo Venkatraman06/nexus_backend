@@ -13,7 +13,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(
                 f"Sync complete — created: {result['created']}, "
                 f"updated: {result['updated']}, skipped: {result['skipped']}, "
-                f"errors: {result['errors']}"
+                f"deleted: {result.get('deleted', 0)}, errors: {result['errors']}"
             ))
         except Exception as exc:
             self.stderr.write(self.style.ERROR(f"Sync failed: {exc}"))
