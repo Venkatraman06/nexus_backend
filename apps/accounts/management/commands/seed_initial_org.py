@@ -74,6 +74,42 @@ ORG_ROLES = [
     "Sales/Marketing Team",     # 7 – CRM & lead-gen focused
 ]
 
+DEPARTMENTS_TO_SEED = [
+    "Management",
+    "Company Administrative Function",
+    "Administration",
+    "Human Resource Department",
+    "Finance and Accounts Department",
+    "Marketing Department",
+    "Sales",
+    "IT Department",
+    "Research and Development",
+    "Customer Service Department",
+    "The Legal Department",
+]
+
+DESIGNATIONS_TO_SEED = [
+    "CEO",
+    "Director",
+    "VP of Engineering",
+    "PM/Solution Architect",
+    "Tech Lead",
+    "Senior Software Engineer",
+    "Software Engineer",
+    "Associate Software Engineer",
+    "Intern",
+    "HR Manager",
+    "HR Executive",
+    "Finance Manager",
+    "Finance Executive",
+    "Sales/Marketing Lead",
+    "Sales Executive",
+    "QA Lead",
+    "QA Engineer",
+    "UI/UX Designer",
+    "System Administrator",
+]
+
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -284,6 +320,29 @@ class Command(BaseCommand):
         self.stdout.write(f"   GST  : {org_gst or '(not set)'}")
         self.stdout.write(f"   Logo : {logo_relative or '(not provided)'}")
 
+        # ── Step 2.5 : Seed Departments and Designations ──────────────────────
+        self.stdout.write(self.style.HTTP_INFO("\n→ Seeding Departments and Designations …"))
+        try:
+            from apps.master.models import Department, Designation
+            
+            dept_created = 0
+            for dept_name in DEPARTMENTS_TO_SEED:
+                _, created = Department.objects.get_or_create(name=dept_name)
+                if created:
+                    dept_created += 1
+                    
+            desig_created = 0
+            for desig_name in DESIGNATIONS_TO_SEED:
+                _, created = Designation.objects.get_or_create(name=desig_name)
+                if created:
+                    desig_created += 1
+                    
+            self.stdout.write(self.style.SUCCESS(
+                f"✔  Master seeding complete: {dept_created} new department(s), {desig_created} new designation(s)."
+            ))
+        except Exception as exc:
+            self.stdout.write(self.style.WARNING(f"  ⚠  Master seeding warning (non-fatal): {exc}"))
+
         # ── Step 3 : Permission catalog ──────────────────────────────────────
         if not skip_kc and not skip_perm:
             self.stdout.write(self.style.HTTP_INFO("\n→ Pushing permission catalog to Keycloak …"))
@@ -449,6 +508,10 @@ class Command(BaseCommand):
             or Employee.objects.filter(username=_DEFAULT_ADMIN_EMAIL).first()
         )
 
+        from apps.master.models import Department, Designation
+        desig_obj = Designation.objects.filter(name="CEO").first()
+        dept_obj = Department.objects.filter(name="Management").first()
+
         ceo_defaults = {
             "email":          admin_email,
             "first_name":     CEO_FIRST_NAME,
@@ -456,6 +519,8 @@ class Command(BaseCommand):
             "employee_code":  CEO_EMP_CODE,
             "designation":    "CEO",
             "department":     "Management",
+            "designation_ref": desig_obj,
+            "department_ref":  dept_obj,
             "keycloak_group": CEO_KC_GROUP,
             "is_staff":       True,
             "is_superuser":   True,
