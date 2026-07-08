@@ -386,6 +386,7 @@ class ProjectCommentViewSet(BaseModelViewSet):
     """
     serializer_class = ProjectCommentSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = None
     http_method_names = ["get", "post", "patch", "delete"]
 
     def get_queryset(self):
