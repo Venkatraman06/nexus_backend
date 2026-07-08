@@ -4,7 +4,7 @@ from rest_framework import serializers
 
 from apps.accounts.serializers import EmployeeDropdownSerializer
 from apps.common.validators import validate_phone
-from .models import Client, Project, ProjectHistory
+from .models import Client, Project, ProjectHistory, ProjectComment, ProjectCommentAcknowledgement
 
 _PAN_RE  = re.compile(r'^[A-Z]{5}[0-9]{4}[A-Z]$')
 _GST_RE  = re.compile(r'^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$')
@@ -173,10 +173,48 @@ class ProjectHistorySerializer(serializers.ModelSerializer):
             return obj.changed_by.full_name
         return "System"
 
-    def get_changed_by_avatar(self, obj):
-        if not obj.changed_by:
-            return None
-        try:
-            return obj.changed_by.profile_picture.url if obj.changed_by.profile_picture else None
-        except Exception:
-            return None
+# ─── Project Comments ────────────────────────────────────────────────────────
+
+class ProjectCommentAcknowledgementSerializer(serializers.ModelSerializer):
+    acknowledged_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProjectCommentAcknowledgement
+        fields = ["id", "acknowledged_by", "acknowledged_by_name", "acknowledged_at"]
+
+    def get_acknowledged_by_name(self, obj):
+        return obj.acknowledged_by.full_name if obj.acknowledged_by else None
+
+
+class ProjectCommentSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.SerializerMethodField()
+    acknowledgements = ProjectCommentAcknowledgementSerializer(many=True, read_only=True)
+    ack_count = serializers.SerializerMethodField()
+    current_user_acked = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProjectComment
+        fields = [
+            "id", "project", "body", "is_pinned",
+            "created_by_name", "created_at", "updated_at",
+            "acknowledgements", "ack_count", "current_user_acked",
+        ]
+        read_only_fields = ["created_at", "updated_at"]
+
+    def get_created_by_name(self, obj):
+        return obj.created_by.full_name if obj.created_by else "Unknown"
+
+    def get_ack_count(self, obj):
+        return obj.acknowledgements.count()
+
+    def get_current_user_acked(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user:
+            return False
+        return obj.acknowledgements.filter(acknowledged_by=request.user).exists()
+
+
+class ProjectCommentCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProjectComment
+        fields = ["project", "body", "is_pinned"]
