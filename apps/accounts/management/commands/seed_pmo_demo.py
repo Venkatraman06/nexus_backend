@@ -568,8 +568,8 @@ class Command(BaseCommand):
             {"code": "MAT", "name": "Maternity Leave", "max_days": 90, "is_paid": True, "color": "#eb2f96"},
             {"code": "PAT", "name": "Paternity Leave", "max_days": 15, "is_paid": True, "color": "#13c2c2"},
             {"code": "CCL", "name": "Child Care Leave", "max_days": 30, "is_paid": True, "color": "#fa8c16"},
-            {"code": "BL", "name": "Bereavement Leave", "max_days": 5, "is_paid": True, "color": "#722ed1"},
-            {"code": "CO", "name": "Compensatory Off", "max_days": 0, "is_paid": True, "color": "#faad14"},
+            {"code": "BRL", "name": "Bereavement Leave", "max_days": 5, "is_paid": True, "color": "#722ed1"},
+            {"code": "COMP", "name": "Compensatory Off (Comp-Off)", "max_days": 0, "is_paid": True, "color": "#faad14"},
         ]
         for t in standard_types:
             LeaveType.objects.get_or_create(

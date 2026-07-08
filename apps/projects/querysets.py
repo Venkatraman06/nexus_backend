@@ -1,7 +1,6 @@
 from django.db.models import Q, QuerySet
 
 from .constants import (
-    get_active_business_workflow_slugs,
     get_project_due_excluded_workflow_slugs,
 )
 
@@ -10,11 +9,18 @@ class ProjectQuerySet(QuerySet):
     """Project queryset helpers."""
 
     def in_active_business(self) -> "ProjectQuerySet":
-        """Projects currently in business (kickoff / ongoing by default)."""
-        slugs = get_active_business_workflow_slugs()
-        if not slugs:
-            return self.none()
-        return self.filter(workflow_state__slug__in=slugs)
+        """
+        Projects currently in active business.
+        A project is active if it has been moved out of its initial state (e.g. enquiry)
+        and is not in a final state (like close or cancelled).
+        """
+        return self.filter(
+            workflow_state__isnull=False
+        ).exclude(
+            workflow_state__is_initial=True
+        ).exclude(
+            workflow_state__is_final=True
+        )
 
     def eligible_for_due_tracking(self) -> "ProjectQuerySet":
         """
