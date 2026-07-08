@@ -3,7 +3,7 @@
 from django.conf import settings
 
 DEFAULT_PROJECT_DUE_EXCLUDED_WORKFLOW_SLUGS = ("close", "cancelled")
-DEFAULT_ACTIVE_BUSINESS_WORKFLOW_SLUGS = ("kickoff", "ongoing")
+DEFAULT_ACTIVE_BUSINESS_WORKFLOW_SLUGS = ("followup", "kickoff", "ongoing")
 
 
 def get_project_due_excluded_workflow_slugs() -> tuple[str, ...]:
