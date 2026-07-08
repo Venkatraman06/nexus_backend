@@ -88,6 +88,7 @@ class TicketListSerializer(serializers.ModelSerializer):
     workflow_state_slug = serializers.CharField(source="workflow_state.slug", read_only=True, default="")
     workflow_state_color = serializers.CharField(source="workflow_state.color_code", read_only=True, default="")
     parent_ticket_id = serializers.CharField(source="parent.ticket_id", read_only=True, default=None)
+    parent_title = serializers.CharField(source="parent.title", read_only=True, default=None)
     children_count = serializers.SerializerMethodField()
     logged_hours = serializers.FloatField(read_only=True)
 
@@ -98,7 +99,7 @@ class TicketListSerializer(serializers.ModelSerializer):
             "workflow_state", "workflow_state_name", "workflow_state_slug", "workflow_state_color",
             "project", "project_name", "project_code", "project_manager_id",
             "assignee", "assignee_name", "reporter", "reporter_name",
-            "parent", "parent_ticket_id", "children_count",
+            "parent", "parent_ticket_id", "parent_title", "children_count",
             "due_date", "original_estimate", "logged_hours",
             "approved", "created_at",
         ]
