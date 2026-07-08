@@ -233,6 +233,8 @@ class TicketViewSet(BaseModelViewSet):
             kwargs["reporter"] = user
         if not serializer.validated_data.get("assignee"):
             kwargs["assignee"] = user
+        kwargs["created_by"] = user
+        kwargs["updated_by"] = user
         ticket = serializer.save(**kwargs)
 
         # Auto-assign initial workflow state
