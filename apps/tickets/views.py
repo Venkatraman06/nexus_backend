@@ -316,14 +316,18 @@ class TicketViewSet(BaseModelViewSet):
         from rest_framework.exceptions import PermissionDenied
         ticket = self.get_object()
 
-        # Only the assignee, reporter, or a user with view_all (PMO/admin) may transition
+        # Only the assignee, reporter, project manager, or a user with view_all (PMO/admin) may transition
         if not self._can_view_all():
             user = request.user
             is_assignee = ticket.assignee_id and str(ticket.assignee_id) == str(user.id)
             is_reporter = ticket.reporter_id and str(ticket.reporter_id) == str(user.id)
-            if not (is_assignee or is_reporter):
+            is_project_manager = (
+                ticket.project and ticket.project.manager_id
+                and str(ticket.project.manager_id) == str(user.id)
+            )
+            if not (is_assignee or is_reporter or is_project_manager):
                 raise PermissionDenied(
-                    "Only the assignee or reporter of this ticket can change its status."
+                    "Only the assignee, reporter, or project manager of this ticket can change its status."
                 )
 
         serializer = TicketTransitionSerializer(data=request.data)
@@ -335,8 +339,12 @@ class TicketViewSet(BaseModelViewSet):
         if not self._can_view_all():
             user = request.user
             is_reporter = ticket.reporter_id and str(ticket.reporter_id) == str(user.id)
+            is_project_manager = (
+                ticket.project and ticket.project.manager_id
+                and str(ticket.project.manager_id) == str(user.id)
+            )
             is_assignee = ticket.assignee_id and str(ticket.assignee_id) == str(user.id)
-            if is_assignee and not is_reporter:
+            if is_assignee and not is_reporter and not is_project_manager:
                 current_slug = ticket.workflow_state.slug.lower() if ticket.workflow_state else ""
                 if current_slug != "todo" or destination_slug != "inprogress":
                     raise PermissionDenied(
@@ -345,9 +353,13 @@ class TicketViewSet(BaseModelViewSet):
 
         if any(keyword in destination_slug for keyword in ["done", "resolved", "closed"]):
             user = request.user
-            if not user.is_superuser and str(ticket.reporter_id) != str(user.id):
+            is_project_manager = (
+                ticket.project and ticket.project.manager_id
+                and str(ticket.project.manager_id) == str(user.id)
+            )
+            if not user.is_superuser and str(ticket.reporter_id) != str(user.id) and not is_project_manager:
                 raise PermissionDenied(
-                    "Only the creator (reporter) of this ticket can close or resolve it."
+                    "Only the reporter or project manager of this ticket can close or resolve it."
                 )
 
         # Prevent parent ticket closure when child tickets are still open
