@@ -405,11 +405,43 @@ class ProjectCommentViewSet(BaseModelViewSet):
             return ProjectCommentCreateSerializer
         return ProjectCommentSerializer
 
+    def _is_privileged(self, user):
+        # CEO: designation is CEO (case-insensitive) or keycloak group has CEO/Founder
+        is_ceo = (
+            (user.designation and user.designation.upper() == "CEO") or
+            (user.keycloak_group and "CEO" in user.keycloak_group)
+        )
+        # Admin: superuser, staff, or Admin group
+        is_admin = (
+            user.is_superuser or
+            user.is_staff or
+            (user.keycloak_group and "Admin" in user.keycloak_group)
+        )
+        # Project Manager: is_manager or PM/Solution Architect group
+        is_pm = (
+            user.is_manager or
+            user.is_pmo or
+            (user.keycloak_group and ("PM" in user.keycloak_group or "Manager" in user.keycloak_group))
+        )
+        return is_ceo or is_admin or is_pm
+
     def perform_create(self, serializer):
+        from rest_framework.exceptions import PermissionDenied
+        if not self._is_privileged(self.request.user):
+            raise PermissionDenied("Only CEO, Admin, and Project Managers can create project comments.")
         serializer.save(created_by=self.request.user, updated_by=self.request.user)
 
     def perform_update(self, serializer):
+        from rest_framework.exceptions import PermissionDenied
+        if not self._is_privileged(self.request.user):
+            raise PermissionDenied("Only CEO, Admin, and Project Managers can update project comments.")
         serializer.save(updated_by=self.request.user)
+
+    def destroy(self, request, *args, **kwargs):
+        from rest_framework.exceptions import PermissionDenied
+        if not self._is_privileged(request.user):
+            raise PermissionDenied("Only CEO, Admin, and Project Managers can delete project comments.")
+        return super().destroy(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"], url_path="acknowledge")
     def acknowledge(self, request, pk=None):
@@ -437,3 +469,4 @@ class ProjectCommentViewSet(BaseModelViewSet):
         ).delete()
         serializer = ProjectCommentSerializer(comment, context={"request": request})
         return Response(serializer.data)
+
