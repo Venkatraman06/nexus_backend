@@ -227,7 +227,9 @@ class TicketViewSet(BaseModelViewSet):
         self._ensure_ticket_workflow_states()
 
         kwargs = {}
-        if not serializer.validated_data.get("reporter"):
+        if project and project.manager:
+            kwargs["reporter"] = project.manager
+        elif not serializer.validated_data.get("reporter"):
             kwargs["reporter"] = user
         if not serializer.validated_data.get("assignee"):
             kwargs["assignee"] = user
