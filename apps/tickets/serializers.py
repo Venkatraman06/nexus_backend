@@ -211,18 +211,12 @@ class TicketDetailSerializer(serializers.ModelSerializer):
                 )
                 is_assignee = obj.assignee_id and str(obj.assignee_id) == str(user.id)
 
-                # PMO/admin, reporter, or project manager → full transition access
-                if is_pmo_admin or is_reporter or is_project_manager:
-                    if not getattr(user, "is_superuser", False) and not is_reporter and not is_project_manager:
-                        # Plain PMO without superuser: exclude close/resolve
+                # PMO/admin, reporter, project manager, or assignee → full transition access
+                if is_pmo_admin or is_reporter or is_project_manager or is_assignee:
+                    if not getattr(user, "is_superuser", False) and not is_reporter and not is_project_manager and not is_assignee:
+                        # Plain PMO without superuser and not directly involved: exclude close/resolve
                         states = [s for s in states if not any(keyword in s.slug.lower() for keyword in ["done", "resolved", "closed"])]
-                elif is_assignee:
-                    # Assignee can only move from todo → inprogress
-                    current_slug = obj.workflow_state.slug.lower() if obj.workflow_state else ""
-                    if current_slug == "todo":
-                        states = [s for s in states if s.slug.lower() == "inprogress"]
-                    else:
-                        states = []
+
                 else:
                     states = []
             return [{"id": str(s.id), "name": s.name, "slug": s.slug, "color": s.color_code} for s in states]

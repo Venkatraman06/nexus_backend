@@ -335,8 +335,7 @@ class TicketViewSet(BaseModelViewSet):
         dest_slug = serializer.validated_data["destination_state"]
         destination_slug = dest_slug.lower()
 
-        # Enforce assignee-specific restriction: can only transition from todo to inprogress
-        if not self._can_view_all():
+        if any(keyword in destination_slug for keyword in ["done", "resolved", "closed"]):
             user = request.user
             is_reporter = ticket.reporter_id and str(ticket.reporter_id) == str(user.id)
             is_project_manager = (
@@ -344,23 +343,11 @@ class TicketViewSet(BaseModelViewSet):
                 and str(ticket.project.manager_id) == str(user.id)
             )
             is_assignee = ticket.assignee_id and str(ticket.assignee_id) == str(user.id)
-            if is_assignee and not is_reporter and not is_project_manager:
-                current_slug = ticket.workflow_state.slug.lower() if ticket.workflow_state else ""
-                if current_slug != "todo" or destination_slug != "inprogress":
-                    raise PermissionDenied(
-                        "As the assignee, you can only change this ticket's status from To-Do to In-Progress."
-                    )
-
-        if any(keyword in destination_slug for keyword in ["done", "resolved", "closed"]):
-            user = request.user
-            is_project_manager = (
-                ticket.project and ticket.project.manager_id
-                and str(ticket.project.manager_id) == str(user.id)
-            )
-            if not user.is_superuser and str(ticket.reporter_id) != str(user.id) and not is_project_manager:
+            if not user.is_superuser and not is_reporter and not is_project_manager and not is_assignee:
                 raise PermissionDenied(
-                    "Only the reporter or project manager of this ticket can close or resolve it."
+                    "Only the assignee, reporter, or project manager of this ticket can close or resolve it."
                 )
+
 
         # Prevent parent ticket closure when child tickets are still open
         from django.contrib.contenttypes.models import ContentType
