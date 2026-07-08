@@ -7,11 +7,12 @@ from apps.common.viewsets import BaseModelViewSet
 from apps.common.permissions import IsAuthenticated, HasKeycloakPermission
 from packages.workflow.exceptions import WorkflowTransitionError
 from packages.workflow.services import TransitionService
-from .models import Client, Project, ProjectHistory
+from .models import Client, Project, ProjectHistory, ProjectComment, ProjectCommentAcknowledgement
 from .serializers import (
     ClientSerializer, ClientDropdownSerializer,
     ProjectListSerializer, ProjectDetailSerializer, ProjectCreateSerializer,
     ProjectTransitionSerializer, ProjectHistorySerializer, ProjectDropdownSerializer,
+    ProjectCommentSerializer, ProjectCommentCreateSerializer,
 )
 from .filters import ProjectFilter
 
@@ -371,3 +372,68 @@ class ProjectViewSet(BaseModelViewSet):
         from apps.payment.budget_service import project_budget_summary
         project = self.get_object()
         return Response(project_budget_summary(project))
+
+
+# ──────────────────────────────────────────────────────────────────────────────────
+# Project Comments
+# ──────────────────────────────────────────────────────────────────────────────────
+
+class ProjectCommentViewSet(BaseModelViewSet):
+    """
+    CRUD for project comments (dashboard comment threads).
+    - CEO / Admin / Project Manager can create, update, delete.
+    - Any authenticated user can list & acknowledge.
+    """
+    serializer_class = ProjectCommentSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "patch", "delete"]
+
+    def get_queryset(self):
+        qs = ProjectComment.objects.select_related(
+            "project", "created_by"
+        ).prefetch_related(
+            "acknowledgements__acknowledged_by"
+        ).filter(is_deleted=False)
+
+        project_id = self.request.query_params.get("project")
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+        return qs
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return ProjectCommentCreateSerializer
+        return ProjectCommentSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user, updated_by=self.request.user)
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
+
+    @action(detail=True, methods=["post"], url_path="acknowledge")
+    def acknowledge(self, request, pk=None):
+        """
+        Toggle-acknowledge a comment. If already acknowledged, does nothing (idempotent).
+        Returns the updated comment with full acknowledgement list.
+        """
+        comment = self.get_object()
+        ack, created = ProjectCommentAcknowledgement.objects.get_or_create(
+            comment=comment,
+            acknowledged_by=request.user,
+        )
+        serializer = ProjectCommentSerializer(comment, context={"request": request})
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["delete"], url_path="unacknowledge")
+    def unacknowledge(self, request, pk=None):
+        """
+        Remove the current user's acknowledgement (undo).
+        """
+        comment = self.get_object()
+        ProjectCommentAcknowledgement.objects.filter(
+            comment=comment,
+            acknowledged_by=request.user,
+        ).delete()
+        serializer = ProjectCommentSerializer(comment, context={"request": request})
+        return Response(serializer.data)

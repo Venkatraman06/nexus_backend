@@ -8,6 +8,12 @@ from apps.common.models import BaseModel
 from packages.workflow.field import StateField
 
 from .querysets import ProjectQuerySet
+from .comment_models import ProjectComment, ProjectCommentAcknowledgement  # noqa: F401
+
+__all__ = [
+    "Client", "Project", "ProjectHistory",
+    "ProjectComment", "ProjectCommentAcknowledgement",
+]
 
 
 class ProjectManager(models.Manager.from_queryset(ProjectQuerySet)):
