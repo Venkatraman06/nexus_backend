@@ -173,6 +173,14 @@ class ProjectHistorySerializer(serializers.ModelSerializer):
             return obj.changed_by.full_name
         return "System"
 
+    def get_changed_by_avatar(self, obj):
+        if not obj.changed_by:
+            return None
+        try:
+            return obj.changed_by.profile_picture.url if obj.changed_by.profile_picture else None
+        except Exception:
+            return None
+
 # ─── Project Comments ────────────────────────────────────────────────────────
 
 class ProjectCommentAcknowledgementSerializer(serializers.ModelSerializer):
