@@ -83,6 +83,7 @@ class TicketListSerializer(serializers.ModelSerializer):
     reporter_name = serializers.SerializerMethodField()
     project_name = serializers.CharField(source="project.name", read_only=True)
     project_code = serializers.CharField(source="project.code", read_only=True)
+    project_manager_id = serializers.SerializerMethodField()
     workflow_state_name = serializers.CharField(source="workflow_state.name", read_only=True, default="")
     workflow_state_slug = serializers.CharField(source="workflow_state.slug", read_only=True, default="")
     workflow_state_color = serializers.CharField(source="workflow_state.color_code", read_only=True, default="")
@@ -95,7 +96,7 @@ class TicketListSerializer(serializers.ModelSerializer):
         fields = [
             "id", "ticket_id", "title", "type", "priority",
             "workflow_state", "workflow_state_name", "workflow_state_slug", "workflow_state_color",
-            "project", "project_name", "project_code",
+            "project", "project_name", "project_code", "project_manager_id",
             "assignee", "assignee_name", "reporter", "reporter_name",
             "parent", "parent_ticket_id", "children_count",
             "due_date", "original_estimate", "logged_hours",
@@ -107,6 +108,12 @@ class TicketListSerializer(serializers.ModelSerializer):
 
     def get_reporter_name(self, obj):
         return obj.reporter.full_name if obj.reporter else None
+
+    def get_project_manager_id(self, obj):
+        """Return the project manager's employee ID for client-side permission checks."""
+        if obj.project and obj.project.manager_id:
+            return str(obj.project.manager_id)
+        return None
 
     def get_children_count(self, obj):
         return obj.children.filter(is_deleted=False).count()
@@ -137,6 +144,7 @@ class TicketDetailSerializer(serializers.ModelSerializer):
     reporter_name = serializers.SerializerMethodField()
     project_name = serializers.CharField(source="project.name", read_only=True)
     project_code = serializers.CharField(source="project.code", read_only=True)
+    project_manager_id = serializers.SerializerMethodField()
     workflow_state_name = serializers.CharField(source="workflow_state.name", read_only=True, default="")
     workflow_state_slug = serializers.CharField(source="workflow_state.slug", read_only=True, default="")
     workflow_state_color = serializers.CharField(source="workflow_state.color_code", read_only=True, default="")
@@ -155,7 +163,7 @@ class TicketDetailSerializer(serializers.ModelSerializer):
             "id", "ticket_id", "title", "description", "type", "priority",
             "workflow_state", "workflow_state_name", "workflow_state_slug", "workflow_state_color",
             "available_states",
-            "project", "project_name", "project_code",
+            "project", "project_name", "project_code", "project_manager_id",
             "assignee", "assignee_name", "reporter", "reporter_name",
             "parent", "parent_ticket_id", "parent_title", "excluded_parent_ids",
             "due_date", "original_estimate", "logged_hours", "remaining_hours",
@@ -176,6 +184,12 @@ class TicketDetailSerializer(serializers.ModelSerializer):
     def get_reporter_name(self, obj):
         return obj.reporter.full_name if obj.reporter else None
 
+    def get_project_manager_id(self, obj):
+        """Return the project manager's employee ID for client-side permission checks."""
+        if obj.project and obj.project.manager_id:
+            return str(obj.project.manager_id)
+        return None
+
     def get_available_states(self, obj):
         try:
             states = obj.get_available_next_states()
@@ -190,13 +204,20 @@ class TicketDetailSerializer(serializers.ModelSerializer):
                     if "pmt.project.view_all" in user_perms:
                         is_pmo_admin = True
 
-                is_reporter = str(obj.reporter_id) == str(user.id)
+                is_reporter = obj.reporter_id and str(obj.reporter_id) == str(user.id)
+                is_project_manager = (
+                    obj.project and obj.project.manager_id
+                    and str(obj.project.manager_id) == str(user.id)
+                )
                 is_assignee = obj.assignee_id and str(obj.assignee_id) == str(user.id)
 
-                if is_pmo_admin or is_reporter:
-                    if not getattr(user, "is_superuser", False) and not is_reporter:
+                # PMO/admin, reporter, or project manager → full transition access
+                if is_pmo_admin or is_reporter or is_project_manager:
+                    if not getattr(user, "is_superuser", False) and not is_reporter and not is_project_manager:
+                        # Plain PMO without superuser: exclude close/resolve
                         states = [s for s in states if not any(keyword in s.slug.lower() for keyword in ["done", "resolved", "closed"])]
                 elif is_assignee:
+                    # Assignee can only move from todo → inprogress
                     current_slug = obj.workflow_state.slug.lower() if obj.workflow_state else ""
                     if current_slug == "todo":
                         states = [s for s in states if s.slug.lower() == "inprogress"]
