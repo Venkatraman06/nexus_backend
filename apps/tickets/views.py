@@ -335,7 +335,19 @@ class TicketViewSet(BaseModelViewSet):
         dest_slug = serializer.validated_data["destination_state"]
         destination_slug = dest_slug.lower()
 
-        if any(keyword in destination_slug for keyword in ["done", "resolved", "closed"]):
+        if any(keyword in destination_slug for keyword in ["done", "closed"]):
+            user = request.user
+            is_reporter = ticket.reporter_id and str(ticket.reporter_id) == str(user.id)
+            is_project_manager = (
+                ticket.project and ticket.project.manager_id
+                and str(ticket.project.manager_id) == str(user.id)
+            )
+            if not user.is_superuser and not is_reporter and not is_project_manager:
+                raise PermissionDenied(
+                    "Only the reporter or project manager of this ticket can close or resolve it to Done/Closed."
+                )
+
+        if any(keyword in destination_slug for keyword in ["resolved"]):
             user = request.user
             is_reporter = ticket.reporter_id and str(ticket.reporter_id) == str(user.id)
             is_project_manager = (
@@ -345,7 +357,7 @@ class TicketViewSet(BaseModelViewSet):
             is_assignee = ticket.assignee_id and str(ticket.assignee_id) == str(user.id)
             if not user.is_superuser and not is_reporter and not is_project_manager and not is_assignee:
                 raise PermissionDenied(
-                    "Only the assignee, reporter, or project manager of this ticket can close or resolve it."
+                    "Only the assignee, reporter, or project manager of this ticket can transition it to Resolved."
                 )
 
 
