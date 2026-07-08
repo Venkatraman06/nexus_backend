@@ -121,13 +121,26 @@ class PMODashboardView(APIView):
         portfolio = _portfolio_projects(due_tracking_qs, today, year, month)
         health_summary = portfolio["summary"]
 
+        total_active_projects = active_projects_qs.count()
+        project_type_breakdown = [
+            {
+                "business_type": row["business_type__name"] or "Unspecified",
+                "count": row["count"],
+                "pct": round(row["count"] / total_active_projects * 100, 1) if total_active_projects else 0.0,
+            }
+            for row in active_projects_qs.values("business_type__name")
+            .annotate(count=Count("id"))
+            .order_by("-count")
+        ]
+
         project_summary = {
             "total":    Project.objects.filter(is_deleted=False).count(),
-            "active":   active_projects_qs.count(),
+            "active":   total_active_projects,
             "inactive": Project.objects.filter(is_deleted=False, is_active=False).count(),
             "on_track": health_summary["on_track"],
             "at_risk":  health_summary["at_risk"],
             "delayed":  health_summary["delayed"],
+            "project_type_breakdown": project_type_breakdown,
         }
 
         tickets_qs = Ticket.objects.filter(is_deleted=False)

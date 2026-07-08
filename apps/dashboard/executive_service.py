@@ -236,6 +236,36 @@ def build_executive_dashboard(fy_start_year: int, today: date | None = None) -> 
             "invoiced_fy": client_invoiced.get(str(c.id), 0.0),
         })
 
+    # Revenue by project type (business_type) — billed vs collected
+    invoiced_by_type: dict[str, float] = {}
+    for row in invoices_fy.values("project__business_type__name").annotate(total=Sum("invoice_amount")):
+        name = row["project__business_type__name"] or "Unspecified"
+        invoiced_by_type[name] = invoiced_by_type.get(name, 0.0) + float(row["total"] or 0)
+
+    received_by_type: dict[str, float] = {}
+    for row in (
+        PaymentAllocation.objects.filter(
+            invoice__is_deleted=False,
+            invoice__is_cancelled=False,
+            payment__is_deleted=False,
+            payment__payment_date__gte=fy_start,
+            payment__payment_date__lte=fy_end,
+        )
+        .values("invoice__project__business_type__name")
+        .annotate(total=Sum("allocated_amount"))
+    ):
+        name = row["invoice__project__business_type__name"] or "Unspecified"
+        received_by_type[name] = received_by_type.get(name, 0.0) + float(row["total"] or 0)
+
+    revenue_by_project_type = [
+        {
+            "business_type": name,
+            "invoiced": round(invoiced_by_type.get(name, 0.0), 2),
+            "received": round(received_by_type.get(name, 0.0), 2),
+        }
+        for name in sorted(set(invoiced_by_type) | set(received_by_type))
+    ]
+
     # Monthly invoice vs payment within FY
     payment_monthly = []
     billing_monthly = []
@@ -340,6 +370,7 @@ def build_executive_dashboard(fy_start_year: int, today: date | None = None) -> 
         "billing_monthly": billing_monthly,
         "project_portfolio": project_rows,
         "project_pipeline": _build_project_pipeline(projects_qs, fy_start, fy_end),
+        "revenue_by_project_type": revenue_by_project_type,
     }
 
 
