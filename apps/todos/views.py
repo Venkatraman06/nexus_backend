@@ -2,11 +2,14 @@ from django.db.models import Q
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.common.pagination import DefaultListPagination
-from apps.common.permissions import HasKeycloakPermission, IsAuthenticated
+from apps.common.permissions import HasKeycloakPermission
 from apps.common.viewsets import BaseModelViewSet
+from apps.notifications.constants import EventType, ReferenceType
+from apps.notifications.publisher import publish_event
 from packages.workflow.exceptions import WorkflowTransitionError
 
 from .filters import TodoFilter
@@ -57,8 +60,6 @@ class TodoViewSet(BaseModelViewSet):
 
     def _scoped_queryset(self, qs=None):
         qs = qs if qs is not None else super().get_queryset()
-        if self._can_view_all():
-            return qs
         uid = self.request.user.pk
         return qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid)).distinct()
 
@@ -66,8 +67,6 @@ class TodoViewSet(BaseModelViewSet):
         return self._scoped_queryset()
 
     def _can_transition(self, todo: Todo) -> bool:
-        if self._can_view_all():
-            return True
         uid = self.request.user.pk
         return todo.reporter_id == uid or todo.assignees.filter(id=uid).exists()
 
@@ -96,6 +95,18 @@ class TodoViewSet(BaseModelViewSet):
             todo.assignees.add(user)
         assign_initial_state(todo)
 
+        assignee_ids = [str(a.id) for a in todo.assignees.all()]
+        if assignee_ids:
+            publish_event(
+                event_type=EventType.TODO_ASSIGNED,
+                reference_type=ReferenceType.TODO,
+                reference_id=str(todo.id),
+                payload={"title": todo.title},
+                actor_id=str(user.id),
+                recipient_ids=assignee_ids,
+                async_delivery=True,
+            )
+
     def perform_update(self, serializer):
         ensure_todo_workflow()
         user = self.request.user
@@ -123,6 +134,19 @@ class TodoViewSet(BaseModelViewSet):
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         todo.refresh_from_db()
+        
+        assignee_ids = [str(a.id) for a in todo.assignees.all()]
+        if assignee_ids:
+            publish_event(
+                event_type=EventType.TODO_TRANSITIONED,
+                reference_type=ReferenceType.TODO,
+                reference_id=str(todo.id),
+                payload={"title": todo.title, "status": todo.workflow_state.name, "actor_name": request.user.full_name},
+                actor_id=str(request.user.id),
+                recipient_ids=assignee_ids,
+                async_delivery=True,
+            )
+
         return Response({
             "message": "Status transitioned successfully.",
             "workflow_state_name": todo.workflow_state.name if todo.workflow_state else None,

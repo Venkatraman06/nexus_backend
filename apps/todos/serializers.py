@@ -47,9 +47,6 @@ class TodoListSerializer(serializers.ModelSerializer):
         user = request.user
         if getattr(user, "is_superuser", False):
             return True
-        user_perms = getattr(request, "user_permissions", [])
-        if "pmt.crm.followup.view_all" in user_perms:
-            return True
         uid = user.pk
         return obj.reporter_id == uid or obj.assignees.filter(id=uid).exists()
 
