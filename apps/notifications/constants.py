@@ -55,4 +55,4 @@ class EventType(models.TextChoices):
 
 
 # Channels enabled today — extend without changing call sites.
-ACTIVE_CHANNELS = [NotificationChannel.IN_APP]
+ACTIVE_CHANNELS = [NotificationChannel.IN_APP, NotificationChannel.EMAIL]
