@@ -234,21 +234,20 @@ def get_loggable_tickets_with_hints(employee, log_date: date, search: str = ""):
         )
         return [], hints
 
-    assigned_any = Ticket.objects.filter(
-        assignee=employee,
+    tickets_any = Ticket.objects.filter(
         is_deleted=False,
         type__in=LOGGABLE_TICKET_TYPES,
     )
-    if not assigned_any.exists():
-        hints.append("No Task, Bug, or CR tickets are assigned to you.")
+    if not tickets_any.exists():
+        hints.append("No Task, Bug, or CR tickets exist.")
 
-    assigned_on_alloc = assigned_any.filter(project_id__in=allocated_ids)
-    if assigned_any.exists() and not assigned_on_alloc.exists():
+    tickets_on_alloc = tickets_any.filter(project_id__in=allocated_ids)
+    if tickets_any.exists() and not tickets_on_alloc.exists():
         hints.append(
-            "Your assigned tickets are on projects you are not allocated to on this date."
+            "There are no tickets on projects you are allocated to on this date."
         )
 
-    qs = assigned_on_alloc.filter(
+    qs = tickets_on_alloc.filter(
         is_deleted=False,
         is_active=True,
     ).select_related("project", "parent", "workflow_state")
@@ -263,7 +262,7 @@ def get_loggable_tickets_with_hints(employee, log_date: date, search: str = ""):
     active = [t for t in qs if is_ticket_active(t)]
     inactive_count = qs.count() - len(active)
     if inactive_count > 0:
-        hints.append(f"{inactive_count} assigned ticket(s) are closed and cannot be logged against.")
+        hints.append(f"{inactive_count} ticket(s) are closed and cannot be logged against.")
 
     if not active and not hints:
         hints.append("No loggable tickets match your search.")

@@ -18,10 +18,9 @@ class Todo(BaseModel):
         choices=TodoPriority.choices,
         default=TodoPriority.MEDIUM,
     )
-    assignee = models.ForeignKey(
+    assignees = models.ManyToManyField(
         "accounts.Employee",
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
+        blank=True,
         related_name="assigned_todos",
     )
     reporter = models.ForeignKey(

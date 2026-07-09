@@ -6,7 +6,7 @@ from .models import Todo
 
 
 class TodoListSerializer(serializers.ModelSerializer):
-    assignee_name = serializers.SerializerMethodField()
+    assignees_data = serializers.SerializerMethodField()
     reporter_name = serializers.SerializerMethodField()
     priority_label = serializers.CharField(source="get_priority_display", read_only=True)
     workflow_state_name = serializers.CharField(source="workflow_state.name", read_only=True, default="")
@@ -20,14 +20,14 @@ class TodoListSerializer(serializers.ModelSerializer):
         model = Todo
         fields = [
             "id", "title", "priority", "priority_label", "description",
-            "assignee", "assignee_name", "reporter", "reporter_name",
+            "assignees", "assignees_data", "reporter", "reporter_name",
             "due_date", "start_time", "end_time", "is_overdue",
             "workflow_state", "workflow_state_name", "workflow_state_slug", "workflow_state_color",
             "can_transition", "allowed_destination_slugs", "created_at", "updated_at",
         ]
 
-    def get_assignee_name(self, obj):
-        return obj.assignee.full_name if obj.assignee else None
+    def get_assignees_data(self, obj):
+        return [{"id": a.id, "full_name": a.full_name} for a in obj.assignees.all()]
 
     def get_reporter_name(self, obj):
         return obj.reporter.full_name if obj.reporter else None
@@ -51,7 +51,7 @@ class TodoListSerializer(serializers.ModelSerializer):
         if "pmt.crm.followup.view_all" in user_perms:
             return True
         uid = user.pk
-        return obj.assignee_id == uid or obj.reporter_id == uid
+        return obj.reporter_id == uid or obj.assignees.filter(id=uid).exists()
 
     def get_allowed_destination_slugs(self, obj):
         request = self.context.get("request")
@@ -86,7 +86,7 @@ class TodoCreateSerializer(serializers.ModelSerializer):
         model = Todo
         fields = [
             "title", "priority", "description",
-            "assignee", "reporter", "due_date", "start_time", "end_time",
+            "assignees", "reporter", "due_date", "start_time", "end_time",
         ]
 
     def validate(self, attrs):

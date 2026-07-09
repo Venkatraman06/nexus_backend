@@ -22,8 +22,8 @@ from .serializers import (
 
 class TodoViewSet(BaseModelViewSet):
     queryset = Todo.objects.select_related(
-        "assignee", "reporter", "workflow_state",
-    ).filter(is_deleted=False)
+        "reporter", "workflow_state",
+    ).prefetch_related("assignees").filter(is_deleted=False)
     permission_classes = [IsAuthenticated, HasKeycloakPermission]
     pagination_class = DefaultListPagination
     filterset_class = TodoFilter
@@ -60,7 +60,7 @@ class TodoViewSet(BaseModelViewSet):
         if self._can_view_all():
             return qs
         uid = self.request.user.pk
-        return qs.filter(Q(assignee_id=uid) | Q(reporter_id=uid))
+        return qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid)).distinct()
 
     def get_queryset(self):
         return self._scoped_queryset()
@@ -69,7 +69,7 @@ class TodoViewSet(BaseModelViewSet):
         if self._can_view_all():
             return True
         uid = self.request.user.pk
-        return todo.assignee_id == uid or todo.reporter_id == uid
+        return todo.reporter_id == uid or todo.assignees.filter(id=uid).exists()
 
     def list(self, request, *args, **kwargs):
         ensure_todo_workflow()
@@ -91,9 +91,9 @@ class TodoViewSet(BaseModelViewSet):
         kwargs = {}
         if not serializer.validated_data.get("reporter"):
             kwargs["reporter"] = user
-        if not serializer.validated_data.get("assignee"):
-            kwargs["assignee"] = user
         todo = serializer.save(created_by=user, updated_by=user, **kwargs)
+        if not serializer.validated_data.get("assignees"):
+            todo.assignees.add(user)
         assign_initial_state(todo)
 
     def perform_update(self, serializer):
