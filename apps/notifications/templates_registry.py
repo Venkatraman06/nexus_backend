@@ -129,6 +129,20 @@ DEFAULT_TEMPLATES = [
         "severity": NotificationSeverity.URGENT,
         "default_action_url": "/followups",
     },
+    {
+        "event_type": EventType.TODO_ASSIGNED,
+        "title_template": "New To-Do assigned",
+        "message_template": "You have been assigned to \"{title}\".",
+        "severity": NotificationSeverity.INFO,
+        "default_action_url": "/workspace/todos",
+    },
+    {
+        "event_type": EventType.TODO_TRANSITIONED,
+        "title_template": "To-Do moved to {status}",
+        "message_template": "\"{title}\" was moved to {status} by {actor_name}.",
+        "severity": NotificationSeverity.INFO,
+        "default_action_url": "/workspace/todos",
+    },
 ]
 
 
