@@ -40,11 +40,22 @@ class S3Storage:
             if e.response["Error"]["Code"] == "404":
                 return None
             raise
-        return self.client.generate_presigned_url(
+        presigned_url = self.client.generate_presigned_url(
             "get_object",
             Params={"Bucket": self.bucket_name, "Key": object_name},
             ExpiresIn=expiry,
         )
+        
+        # Rewrite URL using public endpoint if configured
+        from decouple import config
+        public_url = config("MINIO_PUBLIC_URL", default="").strip()
+        if public_url and presigned_url:
+            pub_url = public_url.rstrip("/")
+            end_url = self.endpoint_url.rstrip("/")
+            if presigned_url.startswith(end_url):
+                presigned_url = presigned_url.replace(end_url, pub_url, 1)
+                
+        return presigned_url
 
     @staticmethod
     def format_file_size(size):
