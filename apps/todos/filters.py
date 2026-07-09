@@ -5,7 +5,7 @@ from .models import Todo
 
 class TodoFilter(django_filters.FilterSet):
     priority = django_filters.CharFilter(field_name="priority")
-    assignee = django_filters.UUIDFilter(field_name="assignee_id")
+    assignee = django_filters.UUIDFilter(field_name="assignees__id")
     reporter = django_filters.UUIDFilter(field_name="reporter_id")
     status = django_filters.CharFilter(field_name="workflow_state__slug")
     due_date_from = django_filters.DateFilter(field_name="due_date", lookup_expr="gte")
