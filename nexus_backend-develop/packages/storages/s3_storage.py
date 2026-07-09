@@ -50,10 +50,15 @@ class S3Storage:
         from decouple import config
         public_url = config("MINIO_PUBLIC_URL", default="").strip()
         if public_url and presigned_url:
-            pub_url = public_url.rstrip("/")
-            end_url = self.endpoint_url.rstrip("/")
-            if presigned_url.startswith(end_url):
-                presigned_url = presigned_url.replace(end_url, pub_url, 1)
+            from urllib.parse import urlparse, urlunparse
+            parsed_presigned = urlparse(presigned_url)
+            parsed_public = urlparse(public_url)
+            presigned_url = urlunparse(
+                parsed_presigned._replace(
+                    scheme=parsed_public.scheme,
+                    netloc=parsed_public.netloc
+                )
+            )
                 
         return presigned_url
 
