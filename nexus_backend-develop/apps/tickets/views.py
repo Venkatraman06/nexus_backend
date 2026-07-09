@@ -128,9 +128,6 @@ class TicketViewSet(BaseModelViewSet):
         allocated_project_ids = Allocation.objects.filter(
             employee=user,
             is_deleted=False,
-            start_date__lte=today,
-        ).filter(
-            Q(end_date__isnull=True) | Q(end_date__gte=today)
         ).values_list("project_id", flat=True)
 
         accessible = set(managed_project_ids) | set(allocated_project_ids)
@@ -155,8 +152,7 @@ class TicketViewSet(BaseModelViewSet):
 
         return Allocation.objects.filter(
             employee=user, project_id=project_id, is_deleted=False,
-            start_date__lte=today,
-        ).filter(Q(end_date__isnull=True) | Q(end_date__gte=today)).exists()
+        ).exists()
 
     @staticmethod
     def _ensure_ticket_workflow_states():
