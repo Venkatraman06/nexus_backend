@@ -57,8 +57,6 @@ class TodoViewSet(BaseModelViewSet):
 
     def _scoped_queryset(self, qs=None):
         qs = qs if qs is not None else super().get_queryset()
-        if self._can_view_all():
-            return qs
         uid = self.request.user.pk
         return qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid)).distinct()
 
@@ -66,8 +64,6 @@ class TodoViewSet(BaseModelViewSet):
         return self._scoped_queryset()
 
     def _can_transition(self, todo: Todo) -> bool:
-        if self._can_view_all():
-            return True
         uid = self.request.user.pk
         return todo.reporter_id == uid or todo.assignees.filter(id=uid).exists()
 
