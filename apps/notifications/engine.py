@@ -237,7 +237,26 @@ class NotificationEngine:
     @staticmethod
     def _dispatch_external(channel: str, recipient, title: str, message: str, action_url: str):
         """Stub for future Email / Push / Slack / Teams / WhatsApp delivery."""
-        logger.debug(
-            "External channel %s not yet implemented for %s: %s",
-            channel, recipient.email, title,
-        )
+        if channel == NotificationChannel.EMAIL:
+            try:
+                from django.core.mail import send_mail
+                from django.conf import settings
+                
+                # construct default from email if not configured
+                from_email = settings.DEFAULT_FROM_EMAIL or settings.EMAIL_HOST_USER
+                
+                send_mail(
+                    subject=title,
+                    message=message,
+                    from_email=from_email,
+                    recipient_list=[recipient.email],
+                    fail_silently=False,
+                )
+                logger.info("Email notification sent to %s: %s", recipient.email, title)
+            except Exception as e:
+                logger.error("Failed to send email notification to %s: %s", recipient.email, str(e))
+        else:
+            logger.debug(
+                "External channel %s not yet implemented for %s: %s",
+                channel, recipient.email, title,
+            )
