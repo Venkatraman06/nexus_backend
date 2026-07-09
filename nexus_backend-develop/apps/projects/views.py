@@ -215,21 +215,32 @@ class ProjectViewSet(BaseModelViewSet):
         allocations = Allocation.objects.filter(
             project=project,
             is_deleted=False,
-            start_date__lte=today,
-        ).filter(
-            Q(end_date__isnull=True) | Q(end_date__gte=today)
         ).select_related("employee").order_by("employee__first_name")
 
-        data = [
-            {
-                "id": str(a.employee.id),
-                "full_name": a.employee.full_name,
-                "employee_code": a.employee.employee_code,
-                "designation": a.employee.designation_ref.name if a.employee.designation_ref_id else "",
-            }
-            for a in allocations
-            if not a.employee.is_deleted and a.employee.is_active
-        ]
+        data = []
+        seen_ids = set()
+        for a in allocations:
+            if not a.employee.is_deleted and a.employee.is_active:
+                emp_id = str(a.employee.id)
+                if emp_id not in seen_ids:
+                    data.append({
+                        "id": emp_id,
+                        "full_name": a.employee.full_name,
+                        "employee_code": a.employee.employee_code,
+                        "designation": a.employee.designation_ref.name if a.employee.designation_ref_id else "",
+                    })
+                    seen_ids.add(emp_id)
+        
+        if project.manager and not project.manager.is_deleted and project.manager.is_active:
+            mgr_id = str(project.manager.id)
+            if mgr_id not in seen_ids:
+                data.append({
+                    "id": mgr_id,
+                    "full_name": project.manager.full_name,
+                    "employee_code": project.manager.employee_code,
+                    "designation": project.manager.designation_ref.name if project.manager.designation_ref_id else "",
+                })
+        
         return Response(data)
 
     @action(detail=False, methods=["get"], url_path="generate-code")
