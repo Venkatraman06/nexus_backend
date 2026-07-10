@@ -38,24 +38,16 @@ jobs:
 
           git fetch origin
 
-          # Create deployment branch if it doesn't exist locally
-          if git show-ref --verify --quiet refs/heads/deployment; then
+          if git ls-remote --exit-code --heads origin deployment; then
             git checkout deployment
+            git pull origin deployment
           else
-            git checkout -b deployment origin/deployment
+            git checkout -b deployment
           fi
 
           git merge --ff-only origin/develop
 
           git push origin deployment
-
-      - name: Test VPS Connectivity
-        run: |
-          echo "Host : ${{ secrets.VPS_HOST }}"
-          echo "Port : ${{ secrets.VPS_PORT }}"
-          timeout 10 bash -c "</dev/tcp/${{ secrets.VPS_HOST }}/${{ secrets.VPS_PORT }}" \
-            && echo "✅ VPS Reachable" \
-            || (echo "❌ VPS Not Reachable"; exit 1)
 
       - name: Deploy Backend
         uses: appleboy/ssh-action@v1.2.0
@@ -64,8 +56,9 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           port: ${{ secrets.VPS_PORT }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          timeout: 60s
-          command_timeout: 15m
+          timeout: 120s
+          command_timeout: 20m
+          debug: true
           script: |
             set -e
 
@@ -77,4 +70,4 @@ jobs:
 
             sudo systemctl restart pmt-backend
 
-            echo "Backend deployment completed successfully."
+            echo "Backend deployed successfully."
