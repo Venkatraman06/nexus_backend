@@ -118,3 +118,4 @@ celery -A core worker -l info
 | `CORS_ALLOWED_ORIGINS` | Comma-separated frontend origins |
 # CI Test
 # CI Test
+# CI Test
