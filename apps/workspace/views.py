@@ -42,6 +42,7 @@ def _followup_event(item: FollowUp) -> dict:
         "workflow_state_slug": slug,
         "workflow_state_name": item.workflow_state.name if item.workflow_state else "",
         "assignee_name": item.assignee.full_name if item.assignee else None,
+        "description": item.description,
     }
 
 
@@ -61,6 +62,7 @@ def _todo_event(item: Todo) -> dict:
         "workflow_state_slug": slug,
         "workflow_state_name": item.workflow_state.name if item.workflow_state else "",
         "assignee_name": ", ".join(a.full_name for a in item.assignees.all()) if item.assignees.exists() else None,
+        "description": item.description,
     }
 
 
