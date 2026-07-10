@@ -16,10 +16,22 @@ from .serializers import (
 from .filters import ProjectFilter
 
 
+class ClientPermission(HasKeycloakPermission):
+    def has_permission(self, request, view):
+        if not super().has_permission(request, view):
+            user_perms = getattr(request, "user_permissions", [])
+            action = getattr(view, "action", None)
+            if action in ("create", "list", "retrieve"):
+                if "pmt.finance.document.create" in user_perms:
+                    return True
+            return False
+        return True
+
+
 class ClientViewSet(BaseModelViewSet):
     queryset = Client.objects.all()
     serializer_class = ClientSerializer
-    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    permission_classes = [IsAuthenticated, ClientPermission]
     search_fields = ["name", "code", "contact_email"]
     ordering_fields = ["name", "created_at"]
     ordering = ["name"]
