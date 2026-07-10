@@ -117,3 +117,4 @@ celery -A core worker -l info
 | `ALLOWED_HOSTS` | Comma-separated allowed hosts |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated frontend origins |
 # CI Test
+# CI Test
