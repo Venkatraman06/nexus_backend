@@ -1,0 +1,65 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches:
+      - develop
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install Dependencies
+      run: |
+        pip install -r requirements.txt
+
+    - name: Django Check
+      run: |
+        python manage.py check
+
+    - name: Merge develop -> deployment
+      run: |
+        git config user.name github-actions
+        git config user.email github-actions@github.com
+
+        git fetch origin
+
+        git checkout deployment
+
+        git merge origin/develop --no-edit
+
+        git push origin deployment
+
+    - name: Deploy Backend
+      uses: appleboy/ssh-action@v1.2.0
+
+      with:
+        host: ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USER }}
+        port: ${{ secrets.VPS_PORT }}
+        key: ${{ secrets.VPS_SSH_KEY }}
+
+        script: |
+
+          cd /opt/pmt/backend
+
+          git checkout deployment
+
+          git pull origin deployment
+
+          sudo systemctl restart pmt-backend
