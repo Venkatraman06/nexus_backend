@@ -56,13 +56,14 @@ class NotificationEngine:
     @staticmethod
     def resolve_recipients(event: DomainEvent) -> list[Employee]:
         if event.recipient_ids is not None:
-            return list(
+            recipients = list(
                 Employee.objects.filter(
                     id__in=event.recipient_ids,
                     is_active=True,
                     is_deleted=False,
                 )
             )
+            return exclude_actor(recipients, event.actor_id)
 
         payload = event.payload
         et = event.event_type
@@ -154,7 +155,8 @@ class NotificationEngine:
 
         if et in ("followup.due_today", "followup.overdue"):
             aid = payload.get("assignee_id")
-            return list(Employee.objects.filter(id=aid, is_active=True, is_deleted=False)) if aid else []
+            recipients = list(Employee.objects.filter(id=aid, is_active=True, is_deleted=False)) if aid else []
+            return exclude_actor(recipients, event.actor_id)
 
         if et == "social_post.published":
             # Notify all active employees when a company-wide post is published

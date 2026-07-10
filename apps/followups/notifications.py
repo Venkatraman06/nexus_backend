@@ -28,7 +28,7 @@ def _time_suffix(followup) -> str:
     return ""
 
 
-def publish_followup_due_today(followup, *, today: date | None = None) -> bool:
+def publish_followup_due_today(followup, *, today: date | None = None, actor_id: str | None = None) -> bool:
     if not is_notifiable_followup(followup):
         return False
     today = today or date.today()
@@ -50,11 +50,12 @@ def publish_followup_due_today(followup, *, today: date | None = None) -> bool:
             "assignee_id": str(followup.assignee_id),
         },
         dedup_key=f"followup.due_today:{followup.id}:{today.isoformat()}",
+        actor_id=actor_id,
     )
     return True
 
 
-def publish_followup_overdue(followup, *, today: date | None = None) -> bool:
+def publish_followup_overdue(followup, *, today: date | None = None, actor_id: str | None = None) -> bool:
     if not is_notifiable_followup(followup):
         return False
     today = today or date.today()
@@ -78,6 +79,7 @@ def publish_followup_overdue(followup, *, today: date | None = None) -> bool:
             "assignee_id": str(followup.assignee_id),
         },
         dedup_key=f"followup.overdue:{followup.id}:{today.isoformat()}",
+        actor_id=actor_id,
     )
     return True
 
@@ -88,9 +90,9 @@ def publish_followup_reminders(followup, *, actor_id: str | None = None) -> None
         return
     today = date.today()
     if followup.due_date == today:
-        publish_followup_due_today(followup, today=today)
+        publish_followup_due_today(followup, today=today, actor_id=actor_id)
     elif followup.due_date < today:
-        publish_followup_overdue(followup, today=today)
+        publish_followup_overdue(followup, today=today, actor_id=actor_id)
 
 
 def scan_followup_reminders(*, today: date | None = None) -> dict[str, int]:
