@@ -96,6 +96,7 @@ class TodoViewSet(BaseModelViewSet):
         assign_initial_state(todo)
 
         assignee_ids = [str(a.id) for a in todo.assignees.all()]
+        assignee_ids = [aid for aid in assignee_ids if aid != str(user.id)]
         if assignee_ids:
             publish_event(
                 event_type=EventType.TODO_ASSIGNED,
@@ -136,6 +137,7 @@ class TodoViewSet(BaseModelViewSet):
         todo.refresh_from_db()
         
         assignee_ids = [str(a.id) for a in todo.assignees.all()]
+        assignee_ids = [aid for aid in assignee_ids if aid != str(request.user.id)]
         if assignee_ids:
             publish_event(
                 event_type=EventType.TODO_TRANSITIONED,
