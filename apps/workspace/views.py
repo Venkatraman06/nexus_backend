@@ -60,7 +60,7 @@ def _todo_event(item: Todo) -> dict:
         "priority": item.priority,
         "workflow_state_slug": slug,
         "workflow_state_name": item.workflow_state.name if item.workflow_state else "",
-        "assignee_name": item.assignee.full_name if item.assignee else None,
+        "assignee_name": ", ".join(a.full_name for a in item.assignees.all()) if item.assignees.exists() else None,
     }
 
 
@@ -98,9 +98,8 @@ class WorkspaceCalendarView(APIView):
                 is_deleted=False,
                 due_date__gte=start,
                 due_date__lte=end,
-            ).select_related("assignee", "workflow_state")
-            if not can_todo_all:
-                todo_qs = todo_qs.filter(Q(assignee_id=uid) | Q(reporter_id=uid))
+            ).select_related("workflow_state").prefetch_related("assignees")
+            todo_qs = todo_qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid)).distinct()
             events.extend(_todo_event(t) for t in todo_qs)
 
         if can_followup:
