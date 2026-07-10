@@ -116,3 +116,4 @@ celery -A core worker -l info
 | `TIME_ZONE` | Django timezone (default: `Asia/Kolkata`) |
 | `ALLOWED_HOSTS` | Comma-separated allowed hosts |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated frontend origins |
+# CI Test
