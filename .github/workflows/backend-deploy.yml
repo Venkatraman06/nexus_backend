@@ -10,56 +10,71 @@ permissions:
 
 jobs:
   deploy:
-
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-    - name: Setup Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.12"
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
 
-    - name: Install Dependencies
-      run: |
-        pip install -r requirements.txt
+      - name: Django Check
+        run: |
+          python manage.py check
 
-    - name: Django Check
-      run: |
-        python manage.py check
+      - name: Merge develop -> deployment
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
 
-    - name: Merge develop -> deployment
-      run: |
-        git config user.name github-actions
-        git config user.email github-actions@github.com
+          git fetch origin
 
-        git fetch origin
+          # Create deployment branch if it doesn't exist locally
+          if git show-ref --verify --quiet refs/heads/deployment; then
+            git checkout deployment
+          else
+            git checkout -b deployment origin/deployment
+          fi
 
-        git checkout deployment
+          git merge --ff-only origin/develop
 
-        git merge origin/develop --no-edit
+          git push origin deployment
 
-        git push origin deployment
+      - name: Test VPS Connectivity
+        run: |
+          echo "Host : ${{ secrets.VPS_HOST }}"
+          echo "Port : ${{ secrets.VPS_PORT }}"
+          timeout 10 bash -c "</dev/tcp/${{ secrets.VPS_HOST }}/${{ secrets.VPS_PORT }}" \
+            && echo "✅ VPS Reachable" \
+            || (echo "❌ VPS Not Reachable"; exit 1)
 
-    - name: Deploy Backend
-      uses: appleboy/ssh-action@v1.2.0
+      - name: Deploy Backend
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          port: ${{ secrets.VPS_PORT }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          timeout: 60s
+          command_timeout: 15m
+          script: |
+            set -e
 
-      with:
-        host: ${{ secrets.VPS_HOST }}
-        username: ${{ secrets.VPS_USER }}
-        port: ${{ secrets.VPS_PORT }
-        key: ${{ secrets.VPS_SSH_KEY }}
+            cd /opt/pmt/backend
 
-        script: |
+            git fetch origin
+            git checkout deployment
+            git pull origin deployment
 
-          cd /opt/pmt/backend
+            sudo systemctl restart pmt-backend
 
-          git checkout deployment
-
-          git pull origin deployment
-
-          sudo systemctl restart pmt-backend
+            echo "Backend deployment completed successfully."
