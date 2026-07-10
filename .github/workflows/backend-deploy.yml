@@ -45,7 +45,7 @@ jobs:
             git checkout -b deployment
           fi
 
-          git merge --ff-only origin/develop
+          git merge origin/develop --no-edit
 
           git push origin deployment
 
@@ -66,7 +66,11 @@ jobs:
 
             git fetch origin
             git checkout deployment
-            git pull origin deployment
+            git reset --hard origin/deployment
+
+            # Activate virtual environment, install requirements, and run migrations
+            ./venv/bin/pip install -r requirements.txt
+            ./venv/bin/python manage.py migrate
 
             sudo systemctl restart pmt-backend
 
