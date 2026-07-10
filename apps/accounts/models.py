@@ -142,6 +142,13 @@ class Employee(AbstractBaseUser, PermissionsMixin):
     def full_name(self):
         return f"{self.first_name} {self.last_name}".strip()
 
+    def save(self, *args, **kwargs):
+        if self.status == EmployeeStatus.ACTIVE:
+            self.is_active = True
+        elif self.status == EmployeeStatus.INACTIVE:
+            self.is_active = False
+        super().save(*args, **kwargs)
+
     def has_perm(self, perm, obj=None):
         return self.is_active and self.is_superuser
 
