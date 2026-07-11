@@ -121,6 +121,26 @@ class EmployeeUpdateSerializer(serializers.ModelSerializer):
     def validate_alternative_number(self, value: str) -> str:
         return validate_phone(value, "Alternative number")
 
+    def validate(self, attrs):
+        from apps.common.constants import EmployeeStatus
+        status_val = attrs.get("status")
+        if status_val == EmployeeStatus.ACTIVE and self.instance and self.instance.status == EmployeeStatus.INACTIVE:
+            request = self.context.get("request")
+            user = request.user if request else None
+            is_ceo = False
+            if user:
+                is_ceo = (
+                    user.is_superuser
+                    or (user.designation_ref and user.designation_ref.name == "CEO")
+                    or user.designation == "CEO"
+                    or user.keycloak_group in ["Admin", "CEO/Founder"]
+                )
+            if not is_ceo:
+                raise serializers.ValidationError(
+                    {"status": "Only the CEO can make an inactive employee active again."}
+                )
+        return attrs
+
     class Meta:
         model = Employee
         fields = [
@@ -136,6 +156,7 @@ class EmployeeUpdateSerializer(serializers.ModelSerializer):
             "custom_shift_start", "custom_shift_end",
             "wfh_allowed", "status", "keycloak_group",
         ]
+
 
 
 class EmployeeDropdownSerializer(serializers.ModelSerializer):
