@@ -214,7 +214,7 @@ class HolidaySerializer(serializers.ModelSerializer):
             "created_at", "updated_at",
             
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "year", "created_at", "updated_at"]
         
 
     def get_holiday_type_label(self, obj):
@@ -223,5 +223,11 @@ class HolidaySerializer(serializers.ModelSerializer):
     def validate(self, data):
         date = data.get("date") or (self.instance.date if self.instance else None)
         if date:
+            if isinstance(date, str):
+                from datetime import datetime
+                try:
+                    date = datetime.strptime(date, "%Y-%m-%d").date()
+                except ValueError:
+                    pass
             data["year"] = date.year
         return data

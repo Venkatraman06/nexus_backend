@@ -14,7 +14,7 @@ from .serializers import (
     ProjectTransitionSerializer, ProjectHistorySerializer, ProjectDropdownSerializer,
     ProjectCommentSerializer, ProjectCommentCreateSerializer,
 )
-from .filters import ProjectFilter
+from .filters import ProjectFilter, ClientFilter
 
 
 class ClientPermission(HasKeycloakPermission):
@@ -32,6 +32,7 @@ class ClientPermission(HasKeycloakPermission):
 class ClientViewSet(BaseModelViewSet):
     queryset = Client.objects.all()
     serializer_class = ClientSerializer
+    filterset_class = ClientFilter
     permission_classes = [IsAuthenticated, ClientPermission]
     search_fields = ["name", "code", "contact_email"]
     ordering_fields = ["name", "created_at"]
