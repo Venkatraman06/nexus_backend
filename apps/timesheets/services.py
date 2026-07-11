@@ -237,14 +237,15 @@ def get_loggable_tickets_with_hints(employee, log_date: date, search: str = ""):
     tickets_any = Ticket.objects.filter(
         is_deleted=False,
         type__in=LOGGABLE_TICKET_TYPES,
+        assignee=employee,
     )
     if not tickets_any.exists():
-        hints.append("No Task, Bug, or CR tickets exist.")
+        hints.append("No Task, Bug, or CR tickets are assigned to you.")
 
     tickets_on_alloc = tickets_any.filter(project_id__in=allocated_ids)
     if tickets_any.exists() and not tickets_on_alloc.exists():
         hints.append(
-            "There are no tickets on projects you are allocated to on this date."
+            "There are no assigned tickets on projects you are allocated to on this date."
         )
 
     qs = tickets_on_alloc.filter(

@@ -158,7 +158,13 @@ class Holiday(MasterBase):
         verbose_name_plural = _("holidays")
 
     def save(self, *args, **kwargs):
-        if self.date and not self.year:
+        if self.date:
+            if isinstance(self.date, str):
+                from datetime import datetime
+                try:
+                    self.date = datetime.strptime(self.date, "%Y-%m-%d").date()
+                except ValueError:
+                    pass
             self.year = self.date.year
         if not self.slug:
             base = slugify(self.name)

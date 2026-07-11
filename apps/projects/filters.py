@@ -3,6 +3,15 @@ import django_filters
 from .models import Client, Project
 
 
+class ClientFilter(django_filters.FilterSet):
+    category = django_filters.UUIDFilter()
+    contact_person = django_filters.CharFilter(lookup_expr="icontains")
+
+    class Meta:
+        model = Client
+        fields = ["category", "contact_person"]
+
+
 class ProjectFilter(django_filters.FilterSet):
     is_active = django_filters.BooleanFilter()
     business_type = django_filters.UUIDFilter()
