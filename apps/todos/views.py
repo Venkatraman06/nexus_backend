@@ -64,6 +64,8 @@ class TodoViewSet(BaseModelViewSet):
         return qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid)).distinct()
 
     def get_queryset(self):
+        if self._can_view_all():
+            return super().get_queryset()
         return self._scoped_queryset()
 
     def _can_transition(self, todo: Todo) -> bool:

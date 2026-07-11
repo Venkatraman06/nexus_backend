@@ -141,5 +141,64 @@ def scan_due_date_reminders() -> dict:
     counts["followups_today"] = followup_counts["followups_today"]
     counts["followups_overdue"] = followup_counts["followups_overdue"]
 
+    # ── Attendance inactivity check ───────────────────────────────────
+    try:
+        inactive_marked = check_consecutive_inactivity()
+        counts["inactive_attendance_marked"] = inactive_marked
+    except Exception as exc:
+        logger.error("Attendance consecutive inactivity check failed: %s", exc)
+
     logger.info("Due-date scan complete: %s", counts)
     return counts
+
+
+@shared_task(name="attendance.check_consecutive_inactivity")
+def check_consecutive_inactivity() -> int:
+    """
+    Check employees who have not marked attendance for 5 consecutive working days
+    and mark them inactive.
+    """
+    from datetime import date, timedelta
+    from apps.accounts.models import Employee
+    from apps.common.constants import EmployeeStatus
+    from apps.attendance.models import AttendanceRecord, AttendanceStatus
+    from apps.master.models import Holiday
+
+    today = date.today()
+    working_days = []
+    current = today
+    limit = 30
+    while len(working_days) < 5 and limit > 0:
+        is_weekend = current.weekday() >= 5
+        is_holiday = Holiday.objects.filter(date=current, is_active=True).exists()
+        if not is_weekend and not is_holiday:
+            working_days.append(current)
+        current -= timedelta(days=1)
+        limit -= 1
+
+    if len(working_days) < 5:
+        return 0
+
+    active_employees = Employee.objects.filter(status=EmployeeStatus.ACTIVE, is_deleted=False)
+    marked_inactive_count = 0
+
+    for emp in active_employees:
+        emp_start_date = emp.joining_date or emp.created_at.date()
+        valid_wd = [wd for wd in working_days if wd >= emp_start_date]
+        if len(valid_wd) < 5:
+            continue
+
+        marked_any = AttendanceRecord.objects.filter(
+            employee=emp,
+            date__in=valid_wd,
+            status__in=[AttendanceStatus.PRESENT, AttendanceStatus.HALF_DAY, AttendanceStatus.WFH],
+            check_in__isnull=False
+        ).exists()
+
+        if not marked_any:
+            emp.status = EmployeeStatus.INACTIVE
+            emp.save()
+            marked_inactive_count += 1
+
+    return marked_inactive_count
+
