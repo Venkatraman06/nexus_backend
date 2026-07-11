@@ -105,7 +105,8 @@ class WorkspaceCalendarView(APIView):
                 due_date__gte=start,
                 due_date__lte=end,
             ).select_related("workflow_state").prefetch_related("assignees")
-            todo_qs = todo_qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid)).distinct()
+            if not can_todo_all:
+                todo_qs = todo_qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid)).distinct()
             events.extend(_todo_event(t) for t in todo_qs)
 
         if can_followup:
