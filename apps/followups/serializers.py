@@ -6,7 +6,7 @@ from .models import FollowUp
 
 
 class FollowUpListSerializer(serializers.ModelSerializer):
-    assignee_name = serializers.SerializerMethodField()
+    assignees_data = serializers.SerializerMethodField()
     reporter_name = serializers.SerializerMethodField()
     type_label = serializers.CharField(source="get_type_display", read_only=True)
     priority_label = serializers.CharField(source="get_priority_display", read_only=True)
@@ -22,15 +22,15 @@ class FollowUpListSerializer(serializers.ModelSerializer):
         fields = [
             "id", "title", "type", "type_label", "priority", "priority_label",
             "description", "comments",
-            "assignee", "assignee_name", "reporter", "reporter_name",
+            "assignees", "assignees_data", "reporter", "reporter_name",
             "start_date", "end_date", "start_time", "end_time", "is_overdue",
             "meeting_mode",
             "workflow_state", "workflow_state_name", "workflow_state_slug", "workflow_state_color",
             "can_transition", "allowed_destination_slugs", "created_at", "updated_at",
         ]
 
-    def get_assignee_name(self, obj):
-        return obj.assignee.full_name if obj.assignee else None
+    def get_assignees_data(self, obj):
+        return [{"id": a.id, "full_name": a.full_name} for a in obj.assignees.all()]
 
     def get_reporter_name(self, obj):
         return obj.reporter.full_name if obj.reporter else None
@@ -63,7 +63,7 @@ class FollowUpListSerializer(serializers.ModelSerializer):
             return True
         uid = user.pk
         return (
-            (obj.assignee_id == uid or obj.reporter_id == uid)
+            obj.reporter_id == uid or obj.assignees.filter(id=uid).exists()
         )
 
     def get_allowed_destination_slugs(self, obj):
@@ -99,7 +99,7 @@ class FollowUpCreateSerializer(serializers.ModelSerializer):
         model = FollowUp
         fields = [
             "title", "type", "priority", "description", "comments",
-            "assignee", "reporter", "start_date", "end_date", "start_time", "end_time",
+            "assignees", "reporter", "start_date", "end_date", "start_time", "end_time",
             "meeting_mode",
         ]
 

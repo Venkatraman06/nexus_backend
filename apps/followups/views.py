@@ -21,8 +21,10 @@ from .serializers import (
 
 
 class FollowUpViewSet(BaseModelViewSet):
-    queryset = FollowUp.objects.select_related(
-        "assignee", "reporter", "workflow_state",
+    queryset = FollowUp.objects.prefetch_related(
+        "assignees"
+    ).select_related(
+        "reporter", "workflow_state",
     ).filter(is_deleted=False)
     permission_classes = [IsAuthenticated, HasKeycloakPermission]
     pagination_class = DefaultListPagination
@@ -67,7 +69,7 @@ class FollowUpViewSet(BaseModelViewSet):
         if self._can_view_all():
             return qs
         uid = self.request.user.pk
-        return qs.filter(Q(assignee_id=uid) | Q(reporter_id=uid))
+        return qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid)).distinct()
 
     def get_queryset(self):
         return self._scoped_queryset()
@@ -77,7 +79,7 @@ class FollowUpViewSet(BaseModelViewSet):
             return True
         user = self.request.user
         uid = user.pk
-        return followup.assignee_id == uid or followup.reporter_id == uid
+        return followup.assignees.filter(id=uid).exists() or followup.reporter_id == uid
 
     def list(self, request, *args, **kwargs):
         ensure_followup_workflow()
@@ -99,9 +101,13 @@ class FollowUpViewSet(BaseModelViewSet):
         kwargs = {}
         if not serializer.validated_data.get("reporter"):
             kwargs["reporter"] = user
-        if not serializer.validated_data.get("assignee"):
-            kwargs["assignee"] = user
+        
         followup = serializer.save(created_by=user, updated_by=user, **kwargs)
+        
+        # If no assignees provided, assign to the current user
+        if not followup.assignees.exists():
+            followup.assignees.add(user)
+        
         assign_initial_state(followup)
         followup.refresh_from_db()
         from .notifications import publish_followup_reminders
@@ -159,9 +165,11 @@ class FollowUpViewSet(BaseModelViewSet):
         view_all = self._can_view_all()
         for item in serializer.data:
             if not view_all:
-                assignee = item.get("assignee")
+                assignees = item.get("assignees", [])
                 reporter = item.get("reporter")
-                if str(assignee) != str(uid) and str(reporter) != str(uid):
+                # Check if user is one of the assignees or the reporter
+                is_assignee = any(str(a) == str(uid) for a in assignees)
+                if not is_assignee and str(reporter) != str(uid):
                     continue
             slug = item.get("workflow_state_slug") or "unknown"
             columns.setdefault(slug, []).append(item)

@@ -11,8 +11,11 @@ ACTIVE_STATE_SLUGS = ("planning", "inprogress")
 
 
 def is_notifiable_followup(followup) -> bool:
-    """Only planning/inprogress follow-ups with an assignee and due date."""
-    if followup.is_deleted or not followup.assignee_id or not followup.end_date:
+    """Only planning/inprogress follow-ups with assignees and due date."""
+    if followup.is_deleted or not followup.end_date:
+        return False
+    # Check if followup has any assignees
+    if not followup.assignees.exists():
         return False
     slug = getattr(getattr(followup, "workflow_state", None), "slug", None)
     return slug in ACTIVE_STATE_SLUGS
@@ -36,22 +39,26 @@ def publish_followup_due_today(followup, *, today: date | None = None, actor_id:
         return False
 
     time_suffix = _time_suffix(followup)
-    publish_event(
-        EventType.FOLLOWUP_DUE_TODAY,
-        ReferenceType.FOLLOWUP,
-        str(followup.id),
-        payload={
-            "title": followup.title,
-            "type_label": followup.get_type_display(),
-            "priority_label": followup.get_priority_display(),
-            "end_date": today.isoformat(),
-            "time_window": time_suffix.strip(" ()"),
-            "time_suffix": time_suffix,
-            "assignee_id": str(followup.assignee_id),
-        },
-        dedup_key=f"followup.due_today:{followup.id}:{today.isoformat()}",
-        actor_id=actor_id,
-    )
+    
+    # Publish event for each assignee
+    assignee_ids = [str(a.id) for a in followup.assignees.all()]
+    for assignee_id in assignee_ids:
+        publish_event(
+            EventType.FOLLOWUP_DUE_TODAY,
+            ReferenceType.FOLLOWUP,
+            str(followup.id),
+            payload={
+                "title": followup.title,
+                "type_label": followup.get_type_display(),
+                "priority_label": followup.get_priority_display(),
+                "end_date": today.isoformat(),
+                "time_window": time_suffix.strip(" ()"),
+                "time_suffix": time_suffix,
+                "assignee_id": assignee_id,
+            },
+            dedup_key=f"followup.due_today:{followup.id}:{assignee_id}:{today.isoformat()}",
+            actor_id=actor_id,
+        )
     return True
 
 
@@ -66,21 +73,24 @@ def publish_followup_overdue(followup, *, today: date | None = None, actor_id: s
     if days_overdue < 1:
         return False
 
-    publish_event(
-        EventType.FOLLOWUP_OVERDUE,
-        ReferenceType.FOLLOWUP,
-        str(followup.id),
-        payload={
-            "title": followup.title,
-            "type_label": followup.get_type_display(),
-            "priority_label": followup.get_priority_display(),
-            "end_date": followup.end_date.isoformat(),
-            "days_overdue": days_overdue,
-            "assignee_id": str(followup.assignee_id),
-        },
-        dedup_key=f"followup.overdue:{followup.id}:{today.isoformat()}",
-        actor_id=actor_id,
-    )
+    # Publish event for each assignee
+    assignee_ids = [str(a.id) for a in followup.assignees.all()]
+    for assignee_id in assignee_ids:
+        publish_event(
+            EventType.FOLLOWUP_OVERDUE,
+            ReferenceType.FOLLOWUP,
+            str(followup.id),
+            payload={
+                "title": followup.title,
+                "type_label": followup.get_type_display(),
+                "priority_label": followup.get_priority_display(),
+                "end_date": followup.end_date.isoformat(),
+                "days_overdue": days_overdue,
+                "assignee_id": assignee_id,
+            },
+            dedup_key=f"followup.overdue:{followup.id}:{assignee_id}:{today.isoformat()}",
+            actor_id=actor_id,
+        )
     return True
 
 
@@ -96,7 +106,7 @@ def publish_followup_reminders(followup, *, actor_id: str | None = None) -> None
 
 
 def scan_followup_reminders(*, today: date | None = None) -> dict[str, int]:
-    """Daily scan — due today + any overdue (planning/inprogress, assignee only)."""
+    """Daily scan — due today + any overdue (planning/inprogress, assignees only)."""
     from apps.followups.models import FollowUp
     from apps.followups.workflow import ensure_followup_workflow
 
@@ -106,17 +116,16 @@ def scan_followup_reminders(*, today: date | None = None) -> dict[str, int]:
 
     qs = FollowUp.objects.filter(
         is_deleted=False,
-        assignee__isnull=False,
         end_date__isnull=False,
         workflow_state__slug__in=ACTIVE_STATE_SLUGS,
-    ).select_related("assignee", "workflow_state")
+    ).prefetch_related("assignees").select_related("workflow_state")
 
     for followup in qs.filter(end_date=today):
-        if publish_followup_due_today(followup, today=today):
+        if followup.assignees.exists() and publish_followup_due_today(followup, today=today):
             counts["followups_today"] += 1
 
     for followup in qs.filter(end_date__lt=today):
-        if publish_followup_overdue(followup, today=today):
+        if followup.assignees.exists() and publish_followup_overdue(followup, today=today):
             counts["followups_overdue"] += 1
 
     return counts
