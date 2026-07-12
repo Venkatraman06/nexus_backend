@@ -114,8 +114,11 @@ class WorkspaceCalendarView(APIView):
         if can_followup:
             fu_qs = FollowUp.objects.filter(
                 is_deleted=False,
-                end_date__gte=start,
-                end_date__lte=end,
+            ).filter(
+                # Overlap: event starts before window ends AND ends after window starts
+                Q(start_date__lte=end, end_date__gte=start) |
+                Q(start_date__isnull=True, end_date__gte=start, end_date__lte=end) |
+                Q(end_date__isnull=True, start_date__gte=start, start_date__lte=end)
             ).select_related("assignee", "workflow_state")
             if not can_followup_all:
                 fu_qs = fu_qs.filter(Q(assignee_id=uid) | Q(reporter_id=uid))
