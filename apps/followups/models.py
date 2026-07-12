@@ -12,6 +12,11 @@ class FollowUpType(models.TextChoices):
     SITE_VISIT = "SITE_VISIT", "Site Visit"
 
 
+class MeetingMode(models.TextChoices):
+    ONLINE  = "ONLINE",  "Online"
+    OFFLINE = "OFFLINE", "Offline"
+
+
 class FollowUpPriority(models.TextChoices):
     IMPORTANT = "IMPORTANT", "Important"
     HIGH      = "HIGH",      "High"
@@ -47,6 +52,11 @@ class FollowUp(BaseModel):
     end_date = models.DateField(null=True, blank=True)
     start_time = models.TimeField(null=True, blank=True)
     end_time = models.TimeField(null=True, blank=True)
+    meeting_mode = models.CharField(
+        max_length=10,
+        choices=MeetingMode.choices,
+        null=True, blank=True,
+    )
     workflow_state = StateField(related_name="followups")
 
     class Meta:

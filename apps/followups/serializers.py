@@ -24,6 +24,7 @@ class FollowUpListSerializer(serializers.ModelSerializer):
             "description", "comments",
             "assignee", "assignee_name", "reporter", "reporter_name",
             "start_date", "end_date", "start_time", "end_time", "is_overdue",
+            "meeting_mode",
             "workflow_state", "workflow_state_name", "workflow_state_slug", "workflow_state_color",
             "can_transition", "allowed_destination_slugs", "created_at", "updated_at",
         ]
@@ -99,6 +100,7 @@ class FollowUpCreateSerializer(serializers.ModelSerializer):
         fields = [
             "title", "type", "priority", "description", "comments",
             "assignee", "reporter", "start_date", "end_date", "start_time", "end_time",
+            "meeting_mode",
         ]
 
     def validate(self, attrs):
