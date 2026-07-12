@@ -34,7 +34,8 @@ def _followup_event(item: FollowUp) -> dict:
         "title": item.title,
         "subtitle": item.get_type_display(),
         "event_kind": item.type.lower(),
-        "due_date": str(item.end_date) if item.end_date else None,
+        "start_date": str(item.start_date) if getattr(item, "start_date", None) else (str(item.end_date) if getattr(item, "end_date", None) else None),
+        "end_date": str(item.end_date) if getattr(item, "end_date", None) else None,
         "start_time": _serialize_time(item.start_time),
         "end_time": _serialize_time(item.end_time),
         "color": FOLLOWUP_TYPE_COLORS.get(item.type, "#1677ff"),
@@ -56,7 +57,8 @@ def _todo_event(item: Todo) -> dict:
         "title": item.title,
         "subtitle": "To-Do",
         "event_kind": "todo",
-        "due_date": str(item.due_date) if item.due_date else None,
+        "start_date": str(item.due_date) if item.due_date else None,
+        "end_date": str(item.due_date) if item.due_date else None,
         "start_time": _serialize_time(item.start_time),
         "end_time": _serialize_time(item.end_time),
         "color": TODO_COLOR,
@@ -119,7 +121,7 @@ class WorkspaceCalendarView(APIView):
                 fu_qs = fu_qs.filter(Q(assignee_id=uid) | Q(reporter_id=uid))
             events.extend(_followup_event(f) for f in fu_qs)
 
-        events.sort(key=lambda e: (e["due_date"] or "", e["start_time"] or ""))
+        events.sort(key=lambda e: (e.get("start_date") or e.get("end_date") or "", e.get("start_time") or ""))
 
         return Response({
             "date_from": date_from,
