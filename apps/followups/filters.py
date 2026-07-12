@@ -9,8 +9,8 @@ class FollowUpFilter(django_filters.FilterSet):
     assignee = django_filters.UUIDFilter(field_name="assignee_id")
     reporter = django_filters.UUIDFilter(field_name="reporter_id")
     status = django_filters.CharFilter(field_name="workflow_state__slug")
-    due_date_from = django_filters.DateFilter(field_name="due_date", lookup_expr="gte")
-    due_date_to = django_filters.DateFilter(field_name="due_date", lookup_expr="lte")
+    start_date = django_filters.DateFilter(field_name="start_date", lookup_expr="gte")
+    end_date = django_filters.DateFilter(field_name="end_date", lookup_expr="lte")
     overdue = django_filters.BooleanFilter(method="filter_overdue")
 
     class Meta:
@@ -22,10 +22,10 @@ class FollowUpFilter(django_filters.FilterSet):
         today = date.today()
         if value:
             return queryset.filter(
-                due_date__lt=today,
+                end_date__lt=today,
                 workflow_state__is_final=False,
             )
         return queryset.exclude(
-            due_date__lt=today,
+            end_date__lt=today,
             workflow_state__is_final=False,
         )

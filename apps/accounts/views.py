@@ -254,7 +254,7 @@ class EmployeeViewSet(BaseModelViewSet):
         # Exclude system/admin accounts that have no employee code
         qs = super().get_queryset().exclude(employee_code="")
         if self.request.query_params.get("dropdown"):
-            return qs.filter(is_active=True)
+            return qs.filter(is_active=True, status="ACTIVE")
         return qs
 
 
@@ -265,7 +265,7 @@ class EmployeeSimpleDropdownView(APIView):
     def get(self, request):
         qs = (
             Employee.objects
-            .filter(is_active=True, is_deleted=False)
+            .filter(is_active=True, is_deleted=False, status="ACTIVE")
             .exclude(employee_code="")
             .select_related("designation_ref")
             .order_by("first_name")
