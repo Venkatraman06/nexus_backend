@@ -467,7 +467,7 @@ class EmployeeDashboardView(APIView):
                 pending_qs = pending_base.filter(visible)
             pending_qs = pending_qs.select_related("workflow_state").annotate(
                 priority_rank=priority_order,
-            ).order_by("priority_rank", "due_date", "start_time")[:10]
+            ).order_by("priority_rank", "end_date", "start_time")[:10]
             pending_followups_data = [
                 {
                     "id":                  str(f.id),
@@ -477,10 +477,11 @@ class EmployeeDashboardView(APIView):
                     "priority":            f.priority,
                     "priority_label":      f.get_priority_display(),
                     "description":         f.description,
-                    "due_date":            str(f.due_date) if f.due_date else None,
+                    "start_date":          str(f.start_date) if f.start_date else None,
+                    "end_date":            str(f.end_date) if f.end_date else None,
                     "start_time":          f.start_time.strftime("%H:%M") if f.start_time else None,
                     "end_time":            f.end_time.strftime("%H:%M") if f.end_time else None,
-                    "is_overdue":          bool(f.due_date and f.due_date < today),
+                    "is_overdue":          bool(f.end_date and f.end_date < today),
                     "assignee_name":       f.assignee.full_name if f.assignee else "",
                     "workflow_state_slug": f.workflow_state.slug if f.workflow_state else "",
                     "workflow_state_name": f.workflow_state.name if f.workflow_state else "",

@@ -28,7 +28,7 @@ class FollowUpViewSet(BaseModelViewSet):
     pagination_class = DefaultListPagination
     filterset_class = FollowUpFilter
     search_fields = ["title", "description", "comments"]
-    ordering_fields = ["created_at", "due_date", "title"]
+    ordering_fields = ["created_at", "start_date", "end_date", "title"]
     ordering = ["-created_at"]
 
     PERMISSION_MAP = {

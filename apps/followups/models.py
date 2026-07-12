@@ -43,7 +43,8 @@ class FollowUp(BaseModel):
         null=True, blank=True,
         related_name="reported_followups",
     )
-    due_date = models.DateField(null=True, blank=True)
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
     start_time = models.TimeField(null=True, blank=True)
     end_time = models.TimeField(null=True, blank=True)
     workflow_state = StateField(related_name="followups")
