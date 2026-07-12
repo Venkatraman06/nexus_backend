@@ -35,12 +35,20 @@ class FollowUpListSerializer(serializers.ModelSerializer):
         return obj.reporter.full_name if obj.reporter else None
 
     def get_is_overdue(self, obj):
-        from datetime import date
+        from datetime import date, datetime
         if not obj.end_date:
             return False
         if obj.workflow_state and obj.workflow_state.is_final:
             return False
-        return obj.end_date < date.today()
+        end = obj.end_date
+        if isinstance(end, str):
+            try:
+                end = datetime.strptime(end, "%Y-%m-%d").date()
+            except ValueError:
+                return False
+        elif isinstance(end, datetime):
+            end = end.date()
+        return end < date.today()
 
     def get_can_transition(self, obj):
         request = self.context.get("request")
@@ -98,16 +106,16 @@ class FollowUpCreateSerializer(serializers.ModelSerializer):
         end = attrs.get("end_time")
         if start and end and end <= start:
             raise serializers.ValidationError({"end_time": "End time must be after start time."})
-        if "start_date" in attrs:
+        if "end_date" in attrs:
             try:
                 validate_due_date_on_write(
-                    attrs.get("start_date"),
-                    previous_due_date=self.instance.start_date if self.instance else None,
+                    attrs.get("end_date"),
+                    previous_due_date=self.instance.end_date if self.instance else None,
                     is_create=self.instance is None,
                 )
             except serializers.ValidationError as e:
                 if isinstance(e.detail, dict) and "due_date" in e.detail:
-                    raise serializers.ValidationError({"start_date": e.detail["due_date"]})
+                    raise serializers.ValidationError({"end_date": e.detail["due_date"]})
                 raise e
         return attrs
 

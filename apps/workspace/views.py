@@ -34,7 +34,7 @@ def _followup_event(item: FollowUp) -> dict:
         "title": item.title,
         "subtitle": item.get_type_display(),
         "event_kind": item.type.lower(),
-        "due_date": str(item.due_date) if item.due_date else None,
+        "due_date": str(item.end_date) if item.end_date else None,
         "start_time": _serialize_time(item.start_time),
         "end_time": _serialize_time(item.end_time),
         "color": FOLLOWUP_TYPE_COLORS.get(item.type, "#1677ff"),
@@ -112,8 +112,8 @@ class WorkspaceCalendarView(APIView):
         if can_followup:
             fu_qs = FollowUp.objects.filter(
                 is_deleted=False,
-                due_date__gte=start,
-                due_date__lte=end,
+                end_date__gte=start,
+                end_date__lte=end,
             ).select_related("assignee", "workflow_state")
             if not can_followup_all:
                 fu_qs = fu_qs.filter(Q(assignee_id=uid) | Q(reporter_id=uid))
