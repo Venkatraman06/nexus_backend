@@ -155,20 +155,30 @@ class PMODashboardView(APIView):
         overdue_count = tickets_qs.filter(
             due_date__lt=today, workflow_state__is_final=False,
         ).count()
-        overdue_tickets = [
-            {
+        overdue_tickets = []
+        for t in tickets_qs.filter(
+            due_date__lt=today, workflow_state__is_final=False,
+        ).select_related("project").order_by("due_date")[:25]:
+            t_due = t.due_date
+            if isinstance(t_due, str):
+                try:
+                    import datetime as _dt_for_str
+                    t_due = _dt_for_str.datetime.strptime(t_due, "%Y-%m-%d").date()
+                except ValueError:
+                    t_due = None
+            elif hasattr(t_due, "date"):
+                t_due = t_due.date()
+                
+            days_overdue = (today - t_due).days if t_due else 0
+            overdue_tickets.append({
                 "id": str(t.id),
                 "ticket_id": t.ticket_id,
                 "title": t.title,
                 "project_code": t.project.code if t.project else None,
                 "project_name": t.project.name if t.project else None,
                 "due_date": str(t.due_date),
-                "days_overdue": (today - t.due_date).days,
-            }
-            for t in tickets_qs.filter(
-                due_date__lt=today, workflow_state__is_final=False,
-            ).select_related("project").order_by("due_date")[:25]
-        ]
+                "days_overdue": days_overdue,
+            })
 
         ticket_by_type = list(
             tickets_qs.values("type").annotate(count=Count("id")).order_by("-count")
@@ -468,8 +478,19 @@ class EmployeeDashboardView(APIView):
             pending_qs = pending_qs.select_related("workflow_state").annotate(
                 priority_rank=priority_order,
             ).order_by("priority_rank", "end_date", "start_time")[:10]
-            pending_followups_data = [
-                {
+            for f in pending_qs:
+                end = f.end_date
+                if isinstance(end, str):
+                    try:
+                        import datetime as _dt_for_str
+                        end = _dt_for_str.datetime.strptime(end, "%Y-%m-%d").date()
+                    except ValueError:
+                        end = None
+                elif hasattr(end, "date"):
+                    end = end.date()
+                is_overdue = bool(end and end < today)
+
+                pending_followups_data.append({
                     "id":                  str(f.id),
                     "title":               f.title,
                     "type":                f.type,
@@ -481,13 +502,11 @@ class EmployeeDashboardView(APIView):
                     "end_date":            str(f.end_date) if f.end_date else None,
                     "start_time":          f.start_time.strftime("%H:%M") if f.start_time else None,
                     "end_time":            f.end_time.strftime("%H:%M") if f.end_time else None,
-                    "is_overdue":          bool(f.end_date and f.end_date < today),
+                    "is_overdue":          is_overdue,
                     "assignee_name":       f.assignee.full_name if f.assignee else "",
                     "workflow_state_slug": f.workflow_state.slug if f.workflow_state else "",
                     "workflow_state_name": f.workflow_state.name if f.workflow_state else "",
-                }
-                for f in pending_qs
-            ]
+                })
 
         # ── My active project allocations ─────────────────────────────
         allocations = Allocation.objects.filter(
