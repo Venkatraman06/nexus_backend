@@ -22,7 +22,22 @@ def _get_config():
 
 
 def _minio_ready(cfg: dict) -> bool:
-    return bool((cfg.get("endpoint_url") or "").strip() and (cfg.get("bucket_name") or "").strip())
+    endpoint = (cfg.get("endpoint_url") or "").strip()
+    bucket = (cfg.get("bucket_name") or "").strip()
+    if not endpoint or not bucket:
+        return False
+    
+    # Quick socket connection check to avoid hanging/throwing if MinIO is not running
+    try:
+        from urllib.parse import urlparse
+        import socket
+        parsed = urlparse(endpoint)
+        host = parsed.hostname
+        port = parsed.port or (80 if parsed.scheme == "http" else 443)
+        with socket.create_connection((host, port), timeout=1.0):
+            return True
+    except Exception:
+        return False
 
 
 class DynamicS3Storage(Storage):
@@ -30,6 +45,7 @@ class DynamicS3Storage(Storage):
 
     def __init__(self, **kwargs):
         self._cached_backend = None
+        self._local_backend = FileSystemStorage()
 
     @property
     def _backend(self):
@@ -38,23 +54,55 @@ class DynamicS3Storage(Storage):
             if _minio_ready(cfg):
                 self._cached_backend = DjangoS3Storage(**cfg)
             else:
-                self._cached_backend = FileSystemStorage()
+                self._cached_backend = self._local_backend
         return self._cached_backend
 
     def _save(self, name, content):
-        return self._backend._save(name, content)
+        backend = self._backend
+        if not isinstance(backend, FileSystemStorage):
+            try:
+                return backend._save(name, content)
+            except Exception as e:
+                import logging
+                logging.getLogger("django").warning(
+                    f"S3 save failed ({e}), falling back to local FileSystemStorage."
+                )
+        return self._local_backend._save(name, content)
 
     def _open(self, name, mode="rb"):
+        if self._local_backend.exists(name):
+            return self._local_backend._open(name, mode)
         return self._backend._open(name, mode)
 
     def delete(self, name):
-        return self._backend.delete(name)
+        if self._local_backend.exists(name):
+            self._local_backend.delete(name)
+        try:
+            self._backend.delete(name)
+        except Exception:
+            pass
 
     def exists(self, name):
-        return self._backend.exists(name)
+        if self._local_backend.exists(name):
+            return True
+        try:
+            return self._backend.exists(name)
+        except Exception:
+            return False
 
     def url(self, name):
-        return self._backend.url(name)
+        if self._local_backend.exists(name):
+            return self._local_backend.url(name)
+        try:
+            return self._backend.url(name)
+        except Exception:
+            return self._local_backend.url(name)
 
     def size(self, name):
-        return self._backend.size(name)
+        if self._local_backend.exists(name):
+            return self._local_backend.size(name)
+        try:
+            return self._backend.size(name)
+        except Exception:
+            return 0
+

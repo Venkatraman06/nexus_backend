@@ -16,32 +16,48 @@ class S3Storage:
             aws_secret_access_key=secret_key,
             endpoint_url=endpoint_url,
         )
+        # Ensure bucket exists
+        try:
+            self.client.head_bucket(Bucket=self.bucket_name)
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code")
+            if error_code in ("404", "NoSuchBucket"):
+                try:
+                    self.client.create_bucket(Bucket=self.bucket_name)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     def upload_file(self, file_obj, object_name):
         self.client.upload_fileobj(file_obj, self.bucket_name, object_name)
         return f"{self.endpoint_url}/{self.bucket_name}/{object_name}"
 
     def delete_file(self, object_name):
-        self.client.delete_object(Bucket=self.bucket_name, Key=object_name)
+        try:
+            self.client.delete_object(Bucket=self.bucket_name, Key=object_name)
+        except Exception:
+            pass
 
     def file_exists(self, object_name):
         try:
             self.client.head_object(Bucket=self.bucket_name, Key=object_name)
             return True
-        except ClientError:
+        except Exception:
             return False
 
     def get_file_size(self, object_name):
-        response = self.client.head_object(Bucket=self.bucket_name, Key=object_name)
-        return response.get("ContentLength", 0)
+        try:
+            response = self.client.head_object(Bucket=self.bucket_name, Key=object_name)
+            return response.get("ContentLength", 0)
+        except Exception:
+            return 0
 
     def get_presigned_url(self, object_name, expiry=3600):
         try:
             self.client.head_object(Bucket=self.bucket_name, Key=object_name)
-        except ClientError as e:
-            if e.response["Error"]["Code"] == "404":
-                return None
-            raise
+        except Exception:
+            return None
             
         import mimetypes
         content_type, _ = mimetypes.guess_type(object_name)
