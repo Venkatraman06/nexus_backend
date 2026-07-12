@@ -6,7 +6,7 @@ from .models import FollowUp
 class FollowUpFilter(django_filters.FilterSet):
     type = django_filters.CharFilter(field_name="type")
     priority = django_filters.CharFilter(field_name="priority")
-    assignee = django_filters.UUIDFilter(field_name="assignee_id")
+    assignee = django_filters.UUIDFilter(field_name="assignees__id")
     reporter = django_filters.UUIDFilter(field_name="reporter_id")
     status = django_filters.CharFilter(field_name="workflow_state__slug")
     start_date = django_filters.DateFilter(field_name="start_date", lookup_expr="gte")

@@ -36,10 +36,9 @@ class FollowUp(BaseModel):
     )
     description = models.TextField(blank=True, default="")
     comments = models.TextField(blank=True, default="")
-    assignee = models.ForeignKey(
+    assignees = models.ManyToManyField(
         "accounts.Employee",
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
+        blank=True,
         related_name="assigned_followups",
     )
     reporter = models.ForeignKey(
