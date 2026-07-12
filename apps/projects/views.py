@@ -242,7 +242,7 @@ class ProjectViewSet(BaseModelViewSet):
         data = []
         seen_ids = set()
         for a in allocations:
-            if not a.employee.is_deleted and a.employee.is_active and a.employee.status == "ACTIVE":
+            if not a.employee.is_deleted and a.employee.is_active:
                 emp_id = str(a.employee.id)
                 if emp_id not in seen_ids:
                     data.append({
@@ -253,7 +253,7 @@ class ProjectViewSet(BaseModelViewSet):
                     })
                     seen_ids.add(emp_id)
         
-        if project.manager and not project.manager.is_deleted and project.manager.is_active and project.manager.status == "ACTIVE":
+        if project.manager and not project.manager.is_deleted and project.manager.is_active:
             mgr_id = str(project.manager.id)
             if mgr_id not in seen_ids:
                 data.append({
