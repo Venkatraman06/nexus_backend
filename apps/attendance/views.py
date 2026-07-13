@@ -898,7 +898,7 @@ class MyLeaveRequestListView(APIView):
                         "project_manager_id": str(manager.id),
                     },
                     actor_id=str(request.user.id),
-                    recipient_id=str(manager.id),  # Specific recipient for project managers
+                    recipient_ids=[str(manager.id)],  # Specific recipient for project managers
                     async_delivery=True,
                 )
 
@@ -1053,7 +1053,7 @@ class LeaveReviewView(APIView):
                 "remarks": leave.reviewer_remarks,
             },
             actor_id=str(request.user.id),
-            recipient_id=str(leave.employee.id),  # Notify the employee
+            recipient_ids=[str(leave.employee.id)],  # Notify the employee
             async_delivery=True,
         )
 
