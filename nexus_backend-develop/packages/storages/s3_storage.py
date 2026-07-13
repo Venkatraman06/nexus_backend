@@ -16,7 +16,20 @@ class S3Storage:
         )
 
     def upload_file(self, file_obj, object_name):
-        self.client.upload_fileobj(file_obj, self.bucket_name, object_name)
+        if hasattr(file_obj, "seek"):
+            try:
+                file_obj.seek(0)
+            except Exception:
+                pass
+        try:
+            data = file_obj.read()
+            if isinstance(data, str):
+                data = data.encode("utf-8")
+            from io import BytesIO
+            file_data = BytesIO(data)
+        except Exception:
+            file_data = file_obj
+        self.client.upload_fileobj(file_data, self.bucket_name, object_name)
         return f"{self.endpoint_url}/{self.bucket_name}/{object_name}"
 
     def delete_file(self, object_name):
@@ -82,7 +95,11 @@ class DjangoS3Storage(Storage):
         raise NotImplementedError
 
     def _save(self, name, content):
-        self._s3.upload_file(content.file, name)
+        try:
+            content.seek(0)
+        except Exception:
+            pass
+        self._s3.upload_file(content, name)
         return name
 
     def delete(self, name):
