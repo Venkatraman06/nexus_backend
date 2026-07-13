@@ -167,7 +167,7 @@ class TicketCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Ticket
         fields = [
-            "project", "title", "description", "type", "priority",
+            "id", "project", "title", "description", "type", "priority",
             "assignee", "reporter", "due_date", "original_estimate",
             "parent", "approved", "notify_users",
         ]

@@ -42,7 +42,7 @@ def _followup_event(item: FollowUp) -> dict:
         "priority": item.priority,
         "workflow_state_slug": slug,
         "workflow_state_name": item.workflow_state.name if item.workflow_state else "",
-        "assignee_name": item.assignee.full_name if item.assignee else None,
+        "assignee_name": ", ".join(a.full_name for a in item.assignees.all()) if item.assignees.exists() else None,
         "description": item.description,
         "comments": item.comments,
         "note": item.comments,
@@ -119,9 +119,9 @@ class WorkspaceCalendarView(APIView):
                 Q(start_date__lte=end, end_date__gte=start) |
                 Q(start_date__isnull=True, end_date__gte=start, end_date__lte=end) |
                 Q(end_date__isnull=True, start_date__gte=start, start_date__lte=end)
-            ).select_related("assignee", "workflow_state")
+            ).prefetch_related("assignees").select_related("workflow_state")
             if not can_followup_all:
-                fu_qs = fu_qs.filter(Q(assignee_id=uid) | Q(reporter_id=uid))
+                fu_qs = fu_qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid)).distinct()
             events.extend(_followup_event(f) for f in fu_qs)
 
         events.sort(key=lambda e: (e.get("start_date") or e.get("end_date") or "", e.get("start_time") or ""))

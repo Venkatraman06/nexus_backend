@@ -404,15 +404,15 @@ class EmployeeDashboardView(APIView):
                 default=Value(4),
                 output_field=IntegerField(),
             )
-            visible = Q(assignee_id=me.pk) | Q(reporter_id=me.pk)
+            visible = Q(assignees=me) | Q(reporter_id=me.pk)
             pending_base = FollowUp.objects.filter(
                 is_deleted=False,
                 workflow_state__is_final=False,
-            )
+            ).prefetch_related("assignees")
             if "pmt.crm.followup.view_all" in user_perms:
                 pending_qs = pending_base
             else:
-                pending_qs = pending_base.filter(visible)
+                pending_qs = pending_base.filter(visible).distinct()
             pending_qs = pending_qs.select_related("workflow_state").annotate(
                 priority_rank=priority_order,
             ).order_by("priority_rank", "due_date", "start_time")[:10]
@@ -429,7 +429,7 @@ class EmployeeDashboardView(APIView):
                     "start_time":          f.start_time.strftime("%H:%M") if f.start_time else None,
                     "end_time":            f.end_time.strftime("%H:%M") if f.end_time else None,
                     "is_overdue":          bool(f.due_date and f.due_date < today),
-                    "assignee_name":       f.assignee.full_name if f.assignee else "",
+                    "assignee_name":       ", ".join(a.full_name for a in f.assignees.all()) if f.assignees.exists() else "",
                     "workflow_state_slug": f.workflow_state.slug if f.workflow_state else "",
                     "workflow_state_name": f.workflow_state.name if f.workflow_state else "",
                 }
