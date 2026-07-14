@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.permissions import IsAuthenticated
+from apps.notifications.constants import NotificationChannel
 from apps.notifications.models import Notification
 from apps.notifications.serializers import MarkReadSerializer, NotificationSerializer
 
@@ -26,7 +27,11 @@ class NotificationListView(APIView):
         unread_only = request.query_params.get("unread_only", "true").lower() != "false"
         limit = min(int(request.query_params.get("limit", 50)), 100)
 
-        qs = Notification.objects.filter(recipient=request.user)
+        # NotificationEngine creates one row per active delivery channel
+        # (in_app/email/push) for a single event — only in_app rows are
+        # meant to be shown to the user; email/push rows are delivery
+        # records, not separate visible notifications.
+        qs = Notification.objects.filter(recipient=request.user, channel=NotificationChannel.IN_APP)
         if unread_only:
             qs = qs.filter(is_read=False)
         qs = qs.select_related("actor")[:limit]
@@ -40,7 +45,7 @@ class NotificationUnreadCountView(APIView):
     @extend_schema(tags=["Notifications"])
     def get(self, request):
         count = Notification.objects.filter(
-            recipient=request.user, is_read=False,
+            recipient=request.user, is_read=False, channel=NotificationChannel.IN_APP,
         ).count()
         return Response({"unread_count": count})
 
@@ -62,7 +67,7 @@ class NotificationMarkReadView(APIView):
         if ids:
             now = timezone.now()
             updated = Notification.objects.filter(
-                recipient=request.user, id__in=ids, is_read=False,
+                recipient=request.user, id__in=ids, is_read=False, channel=NotificationChannel.IN_APP,
             ).update(is_read=True, read_at=now)
             return Response({"message": f"Marked {updated} as read."})
 
@@ -76,7 +81,7 @@ class NotificationMarkAllReadView(APIView):
     def post(self, request):
         now = timezone.now()
         updated = Notification.objects.filter(
-            recipient=request.user, is_read=False,
+            recipient=request.user, is_read=False, channel=NotificationChannel.IN_APP,
         ).update(is_read=True, read_at=now)
         return Response({"message": f"Marked {updated} as read."})
 
@@ -89,10 +94,10 @@ class NotificationDashboardView(APIView):
     @extend_schema(tags=["Notifications"])
     def get(self, request):
         counts = Notification.objects.filter(
-            recipient=request.user, is_read=False,
+            recipient=request.user, is_read=False, channel=NotificationChannel.IN_APP,
         ).count()
         recent = Notification.objects.filter(
-            recipient=request.user, is_read=False,
+            recipient=request.user, is_read=False, channel=NotificationChannel.IN_APP,
         ).select_related("actor").order_by("-created_at")[:20]
 
         by_severity = {"info": 0, "warning": 0, "urgent": 0}
