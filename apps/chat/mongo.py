@@ -27,11 +27,15 @@ _client = None
 _indexes_ready = False
 
 
+import urllib.parse
+
 def _build_client():
     if settings.MONGO_USER:
         auth_db = settings.MONGO_NAME or "admin"
+        user = urllib.parse.quote_plus(settings.MONGO_USER)
+        passwd = urllib.parse.quote_plus(settings.MONGO_PASSWORD)
         uri = (
-            f"mongodb://{settings.MONGO_USER}:{settings.MONGO_PASSWORD}"
+            f"mongodb://{user}:{passwd}"
             f"@{settings.MONGO_HOST}:{settings.MONGO_PORT}/"
             f"?authSource={auth_db}"
         )
