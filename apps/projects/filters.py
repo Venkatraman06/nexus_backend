@@ -9,7 +9,7 @@ class ClientFilter(django_filters.FilterSet):
 
     class Meta:
         model = Client
-        fields = ["category", "contact_person"]
+        fields = ["category"]
 
 
 class ProjectFilter(django_filters.FilterSet):
