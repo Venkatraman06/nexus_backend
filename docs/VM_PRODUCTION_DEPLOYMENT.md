@@ -489,7 +489,7 @@ employees + Keycloak sync, CRM/finance data) is unaffected since
 `name` instead of `code`, or accept the partial demo dataset and move on —
 core functionality (login, permissions, employees) doesn't depend on it.
 
-## 10. Backend as a systemd service (gunicorn)
+## 10. Backend as a systemd service (daphne ASGI)
 
 The units below run as `root` for simplicity, matching whatever user cloned
 the repo — fine to start, worth switching to a dedicated non-root `deploy`
@@ -500,14 +500,13 @@ box is stable.
 
 ```ini
 [Unit]
-Description=PMT Django backend (gunicorn)
+Description=PMT Django backend (daphne ASGI)
 After=network.target postgresql.service redis-server.service mongod.service docker.service
 
 [Service]
 WorkingDirectory=/opt/pmt/backend
 EnvironmentFile=/opt/pmt/backend/.env
-ExecStart=/opt/pmt/backend/venv/bin/gunicorn core.wsgi:application \
-  --bind 127.0.0.1:8000 --workers 4 --timeout 120
+ExecStart=/opt/pmt/backend/venv/bin/daphne -b 127.0.0.1 -p 8000 core.asgi:application
 Restart=on-failure
 RestartSec=3
 

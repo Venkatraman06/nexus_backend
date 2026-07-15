@@ -29,10 +29,11 @@ _indexes_ready = False
 
 def _build_client():
     if settings.MONGO_USER:
+        auth_db = settings.MONGO_NAME or "admin"
         uri = (
             f"mongodb://{settings.MONGO_USER}:{settings.MONGO_PASSWORD}"
             f"@{settings.MONGO_HOST}:{settings.MONGO_PORT}/"
-            f"?authSource=admin"
+            f"?authSource={auth_db}"
         )
     else:
         uri = f"mongodb://{settings.MONGO_HOST}:{settings.MONGO_PORT}/"
