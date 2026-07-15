@@ -6,7 +6,6 @@ from django.db import models
 class NotificationChannel(models.TextChoices):
     IN_APP = "in_app", "In-App"
     EMAIL = "email", "Email"
-    PUSH = "push", "Push"
     SLACK = "slack", "Slack"
     TEAMS = "teams", "Microsoft Teams"
     WHATSAPP = "whatsapp", "WhatsApp"
@@ -32,6 +31,7 @@ class ReferenceType(models.TextChoices):
     FOLLOWUP = "followup", "Follow-up"
     SOCIAL_POST = "social_post", "Social Post"
     TODO = "todo", "To-Do"
+    CHAT_MESSAGE = "chat_message", "Chat Message"
 
 
 class EventType(models.TextChoices):
@@ -55,6 +55,7 @@ class EventType(models.TextChoices):
     SOCIAL_POST_PUBLISHED = "social_post.published", "Social Post Published"
     TODO_ASSIGNED = "todo.assigned", "To-Do Assigned"
     TODO_TRANSITIONED = "todo.transitioned", "To-Do Transitioned"
+    CHAT_MESSAGE_NEW = "chat.message.new", "New Chat Message"
 
 
 # Channels enabled today — extend without changing call sites.

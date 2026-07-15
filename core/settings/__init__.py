@@ -1,7 +1,9 @@
 from .jazzmin import *  # noqa  (must be before base so jazzmin loads before django.contrib.admin)
 from .base import *  # noqa
 from .database import *  # noqa
+from .mongo import *  # noqa
 from .cache import *  # noqa
+from .channels import *  # noqa
 from .celery import *  # noqa
 from .keycloak import *  # noqa
 from .swagger import *  # noqa

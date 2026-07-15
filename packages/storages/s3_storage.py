@@ -104,6 +104,30 @@ class S3Storage:
                 
         return presigned_url
 
+    def generate_presigned_put_url(self, object_name, content_type="application/octet-stream", expiry=600):
+        """Direct-upload URL: client PUTs the file straight to MinIO/S3, matching
+        the get_object counterpart above (get_presigned_url) used for downloads."""
+        presigned_url = self.client.generate_presigned_url(
+            "put_object",
+            Params={
+                "Bucket": self.bucket_name,
+                "Key": object_name,
+                "ContentType": content_type,
+            },
+            ExpiresIn=expiry,
+        )
+
+        from decouple import config
+        public_url = config("MINIO_PUBLIC_URL", default="").strip()
+        if public_url and presigned_url:
+            from urllib.parse import urlparse, urlunparse
+            parsed_presigned = urlparse(presigned_url)
+            parsed_public = urlparse(public_url)
+            presigned_url = urlunparse(
+                parsed_presigned._replace(scheme=parsed_public.scheme, netloc=parsed_public.netloc)
+            )
+        return presigned_url
+
     @staticmethod
     def format_file_size(size):
         if size is None:

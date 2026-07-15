@@ -143,6 +143,13 @@ DEFAULT_TEMPLATES = [
         "severity": NotificationSeverity.INFO,
         "default_action_url": "/workspace/todos",
     },
+    {
+        "event_type": EventType.CHAT_MESSAGE_NEW,
+        "title_template": "{sender_name}",
+        "message_template": "{body_preview}",
+        "severity": NotificationSeverity.INFO,
+        "default_action_url": "/chat?conversation={conversation_id}",
+    },
 ]
 
 
