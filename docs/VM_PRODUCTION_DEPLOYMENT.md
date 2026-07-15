@@ -125,42 +125,96 @@ else in the app (conversations, membership, all other modules) stays
 relational. Ubuntu 22.04's default apt repos don't carry `mongodb-org`
 (dropped for licensing reasons), so add MongoDB's own repo first:
 
-```bash
-curl -fsSL https://pgp.mongodb.com/server-7.0.asc | \
-  gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor
-echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | \
-  tee /etc/apt/sources.list.d/mongodb-org-7.0.list
-apt update
-apt install -y mongodb-org
-systemctl enable --now mongod
-```
-
-By default `mongod` listens on `127.0.0.1:27017` with **no authentication** —
-fine for the local laptop runbook, not for a box with a public IP even though
-the port itself is never opened in ufw (step 14). Enable auth before this VM
-holds real conversations:
+### MongoDB 8.0 Installation on Ubuntu 22.04 LTS (Jammy)
 
 ```bash
-mongosh
-> use admin
-> db.createUser({ user: "pmt", pwd: "<a real password>", roles: [{ role: "readWrite", db: "pmt" }] })
-> exit
+# Import the public GPG key for MongoDB 8.0
+curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | \
+  sudo gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg --dearmor
+
+# Step 1: Remove the incorrect repository (e.g. if a 24.04 repo was mistakenly added)
+sudo rm -f /etc/apt/sources.list.d/mongodb-org-8.0.list
+
+# Step 2: Add the correct Ubuntu 22.04 repository
+echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/8.0 multiverse" | \
+  sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list
+
+# Step 3: Update package lists
+sudo apt update
+
+# Step 4: Install MongoDB
+sudo apt install -y mongodb-org
+
+# Step 5: Start MongoDB
+sudo systemctl enable mongod
+sudo systemctl start mongod
+sudo systemctl status mongod
 ```
 
-Then edit `/etc/mongod.conf` and add:
+### Database, Users, and Security Configuration
 
-```yaml
-security:
-  authorization: enabled
-```
+By default, `mongod` listens on `127.0.0.1:27017` with **no authentication**.
+Secure MongoDB by creating an admin user, the application database, and the application user, and then enabling authorization.
 
-```bash
-systemctl restart mongod
-mongosh "mongodb://pmt:<password>@127.0.0.1:27017/pmt" --eval 'db.runCommand({ ping: 1 })'   # {ok: 1} confirms it
-```
+1. **Create the MongoDB admin user, the `nexus_chat` database, and the `chat_user`**:
 
-Goes into `.env` in step 9: `MONGO_HOST=127.0.0.1`, `MONGO_PORT=27017`,
-`MONGO_NAME=pmt`, `MONGO_USER=pmt`, `MONGO_PASSWORD=<the password above>`.
+   ```bash
+   mongosh
+   ```
+
+   Inside the `mongosh` shell, run:
+
+   ```javascript
+   // Create the MongoDB admin user
+   use admin
+   db.createUser({
+     user: "admin",
+     pwd: "<admin_password>",
+     roles: [
+       { role: "userAdminAnyDatabase", db: "admin" },
+       { role: "readWriteAnyDatabase", db: "admin" }
+     ]
+   })
+
+   // Create the nexus_chat database and the chat_user
+   use nexus_chat
+   db.createUser({
+     user: "chat_user",
+     pwd: "<chat_password>",
+     roles: [
+       { role: "readWrite", db: "nexus_chat" }
+     ]
+   })
+
+   exit
+   ```
+
+2. **Secure MongoDB (bind to localhost and enable authorization)**:
+
+   Ensure MongoDB is only accessible from localhost. Verify that `/etc/mongod.conf` contains the default local binding:
+
+   ```yaml
+   net:
+     port: 27017
+     bindIp: 127.0.0.1
+   ```
+
+   Then edit `/etc/mongod.conf` and add the following lines to enable authorization:
+
+   ```yaml
+   security:
+     authorization: enabled
+   ```
+
+3. **Restart MongoDB and Verify**:
+
+   ```bash
+   sudo systemctl restart mongod
+   mongosh "mongodb://chat_user:<chat_password>@127.0.0.1:27017/nexus_chat" --eval 'db.runCommand({ ping: 1 })'   # {ok: 1} confirms it
+   ```
+
+These settings go into `.env` in step 9: `MONGO_HOST=127.0.0.1`, `MONGO_PORT=27017`,
+`MONGO_NAME=nexus_chat`, `MONGO_USER=chat_user`, `MONGO_PASSWORD=<chat_password>`.
 
 ## 4. Keycloak & MinIO via Docker — bind to localhost only
 
@@ -390,7 +444,7 @@ Then edit `.env`:
 | Django | `SECRET_KEY`, `DEBUG=False`, `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS` | `ALLOWED_HOSTS=<vm-ip-or-domain>,127.0.0.1,localhost`, `CORS_ALLOWED_ORIGINS=https://<vm-ip-or-domain>` |
 | Postgres | `DB_NAME=pmt_db`, `DB_USER=pmt_user`, `DB_PASSWORD`, `DB_HOST=127.0.0.1`, `DB_PORT=5432` | `prod.env`'s template defaults to `DB_HOST=postgres` (a Docker service name) — must be `127.0.0.1` here since Postgres is bare-metal |
 | Redis | `REDIS_URL=redis://127.0.0.1:6379/1` | same reason — template default is `redis://redis:6379/1` |
-| MongoDB | `MONGO_HOST=127.0.0.1`, `MONGO_PORT=27017`, `MONGO_NAME=pmt`, `MONGO_USER=pmt`, `MONGO_PASSWORD` | from step 3B — `prod.env`'s template defaults to `MONGO_HOST=mongo` (a Docker service name, in case this VM ever runs Mongo in Docker instead); must be `127.0.0.1` here since MongoDB is bare-metal, same reasoning as Postgres/Redis above |
+| MongoDB | `MONGO_HOST=127.0.0.1`, `MONGO_PORT=27017`, `MONGO_NAME=nexus_chat`, `MONGO_USER=chat_user`, `MONGO_PASSWORD` | from step 3B — `prod.env`'s template defaults to `MONGO_HOST=mongo` (a Docker service name, in case this VM ever runs Mongo in Docker instead); must be `127.0.0.1` here since MongoDB is bare-metal, same reasoning as Postgres/Redis above |
 | Keycloak | `KEYCLOAK_SERVER_URL=http://127.0.0.1:8080/`, `KEYCLOAK_REALM=pmt`, `KEYCLOAK_CLIENT_ID=pmt-backend`, `KEYCLOAK_CLIENT_SECRET_KEY`, `KEYCLOAK_TOKEN_CLIENT_ID=pmt-backend` | No `/auth` path prefix on modern Keycloak (24+). `KEYCLOAK_TOKEN_CLIENT_ID` isn't referenced anywhere in current code (grep confirms) — set it the same as `KEYCLOAK_CLIENT_ID` for forward-compatibility, it's harmless either way |
 | MinIO | `MINIO_ENDPOINT_URL=http://127.0.0.1:9000`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET_NAME=pmt-files` | |
 | SMTP | `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USE_TLS`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL` | Leave blank to skip email for now — nothing else depends on it at setup time |
