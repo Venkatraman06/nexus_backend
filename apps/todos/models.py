@@ -29,6 +29,7 @@ class Todo(BaseModel):
         null=True, blank=True,
         related_name="reported_todos",
     )
+    start_date = models.DateField(null=True, blank=True)
     due_date = models.DateField(null=True, blank=True)
     start_time = models.TimeField(null=True, blank=True)
     end_time = models.TimeField(null=True, blank=True)
