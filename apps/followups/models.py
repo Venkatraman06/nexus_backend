@@ -18,7 +18,6 @@ class MeetingMode(models.TextChoices):
 
 
 class FollowUpPriority(models.TextChoices):
-    IMPORTANT = "IMPORTANT", "Important"
     HIGH      = "HIGH",      "High"
     MEDIUM    = "MEDIUM",    "Medium"
     LOW       = "LOW",       "Low"
