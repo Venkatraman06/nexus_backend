@@ -15,6 +15,7 @@ class ProjectQuerySet(QuerySet):
         and is not in a final state (like close or cancelled).
         """
         return self.filter(
+            is_active=True,
             workflow_state__isnull=False
         ).exclude(
             workflow_state__is_initial=True
