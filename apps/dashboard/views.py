@@ -510,7 +510,7 @@ class EmployeeDashboardView(APIView):
 
         # ── My active project allocations ─────────────────────────────
         allocations = Allocation.objects.filter(
-            employee=me, is_deleted=False,
+            employee=me, is_deleted=False, project__is_active=True,
         ).filter(
             Q(end_date__gte=today) | Q(end_date__isnull=True)
         ).select_related("project", "project__client").order_by("-allocation_percentage")[:6]

@@ -336,9 +336,10 @@ class TicketViewSet(BaseModelViewSet):
                 ticket.project and ticket.project.manager_id
                 and str(ticket.project.manager_id) == str(user.id)
             )
-            if not user.is_superuser and not is_reporter and not is_project_manager:
+            is_assignee = ticket.assignee_id and str(ticket.assignee_id) == str(user.id)
+            if not user.is_superuser and not is_reporter and not is_project_manager and not is_assignee:
                 raise PermissionDenied(
-                    "Only the reporter or project manager of this ticket can close or resolve it to Done/Closed."
+                    "Only the reporter, project manager, or assignee of this ticket can close or resolve it to Done/Closed."
                 )
 
         if any(keyword in destination_slug for keyword in ["resolved"]):
