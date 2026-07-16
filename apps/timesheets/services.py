@@ -26,7 +26,7 @@ LOGGABLE_TICKET_TYPES = {
     TicketType.SUBTASK,
 }
 
-CLOSED_STATE_SLUGS = ("done", "closed", "cancelled", "canceled")
+CLOSED_STATE_SLUGS = ("closed", "cancelled", "canceled")
 
 # Sun–Sat calendar week; expected hours still based on Mon–Fri working days
 CALENDAR_WEEK_DAYS = 7
