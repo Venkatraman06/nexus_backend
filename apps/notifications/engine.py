@@ -229,7 +229,7 @@ class NotificationEngine:
                 })
 
                 if channel != NotificationChannel.IN_APP:
-                    cls._dispatch_external(channel, recipient, title, message, action_url)
+                    cls._dispatch_external(channel, recipient, title, message, action_url, event)
 
         log.notifications_created = created
         log.processed_at = timezone.now()
@@ -237,16 +237,16 @@ class NotificationEngine:
         return created
 
     @staticmethod
-    def _dispatch_external(channel: str, recipient, title: str, message: str, action_url: str):
-        """Stub for future Email / Push / Slack / Teams / WhatsApp delivery."""
+    def _dispatch_external(channel: str, recipient, title: str, message: str, action_url: str, event: DomainEvent):
+        """Stub for future Slack / Teams / WhatsApp / Push delivery; Email is implemented."""
         if channel == NotificationChannel.EMAIL:
             try:
                 from django.core.mail import send_mail
                 from django.conf import settings
-                
+
                 # construct default from email if not configured
                 from_email = settings.DEFAULT_FROM_EMAIL or settings.EMAIL_HOST_USER
-                
+
                 send_mail(
                     subject=title,
                     message=message,

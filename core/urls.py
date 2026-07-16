@@ -31,6 +31,7 @@ urlpatterns = [
     path(f"{URL_PREFIX}/api/v1/", include("apps.workspace.urls")),
     path(f"{URL_PREFIX}/api/v1/", include("apps.social_feed.urls")),
     path(f"{URL_PREFIX}/api/v1/", include("apps.notifications.urls")),
+    path(f"{URL_PREFIX}/api/v1/", include("apps.chat.urls")),
 ]
 
 if settings.DEBUG:

@@ -48,6 +48,8 @@
   {"name": "pmt.hrms.compliance.update", "description": "Update HR compliance documents", "category": "HRMS"},
   {"name": "pmt.hrms.compliance.delete", "description": "Delete HR compliance documents", "category": "HRMS"},
 
+  {"name": "pmt.chat.view", "description": "Use the team chat module", "category": "Chat"},
+
   {"name": "pmt.policy.view", "description": "View policy documents", "category": "Policy Document"},
   {"name": "pmt.policy.create", "description": "Create policy documents", "category": "Policy Document"},
   {"name": "pmt.policy.update", "description": "Update policy documents", "category": "Policy Document"},

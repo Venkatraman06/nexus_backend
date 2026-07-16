@@ -162,11 +162,10 @@ def build_executive_dashboard(fy_start_year: int, today: date | None = None) -> 
         "active": clients.filter(is_active=True).count(),
     }
 
-    projects_qs = Project.objects.filter(
-        is_deleted=False,
-        created_at__date__gte=fy_start,
-        created_at__date__lte=fy_end,
-    ).select_related("client")
+    projects_qs = Project.objects.filter(is_deleted=False).select_related("client").filter(
+        (Q(start_date__lte=fy_end) | Q(start_date__isnull=True)) &
+        (Q(end_date__gte=fy_start) | Q(end_date__isnull=True))
+    )
     active_business_qs = projects_qs.in_active_business()
     project_stats = {
         "total": projects_qs.count(),

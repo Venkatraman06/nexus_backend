@@ -9,6 +9,11 @@ sys.path.insert(0, os.path.join(BASE_DIR, "apps"))
 
 URL_PREFIX = "pmt"
 
+# Chat module (apps/chat)
+CHAT_MAX_ATTACHMENT_SIZE = config("CHAT_MAX_ATTACHMENT_SIZE", default=10 * 1024 * 1024, cast=int)  # 10MB
+CLAMAV_HOST = config("CLAMAV_HOST", default="localhost")
+CLAMAV_PORT = config("CLAMAV_PORT", default=3310, cast=int)
+
 SECRET_KEY = config("SECRET_KEY", default="django-insecure-change-me-in-production")
 DEBUG = config("DEBUG", default=False, cast=bool)
 
@@ -48,6 +53,7 @@ PROJECT_APPS = [
     "apps.todos",
     "apps.workspace",
     "apps.social_feed",
+    "apps.chat",
 ]
 
 THIRD_PARTY_LIBRARIES = [
@@ -65,12 +71,14 @@ THIRD_PARTY_LIBRARIES = [
 INSTALLED_APPS = (
     [
         "jazzmin",  # must be before django.contrib.admin
+        "daphne",   # must be before django.contrib.staticfiles so it takes over `runserver` for ASGI/WebSockets
         "django.contrib.admin",
         "django.contrib.auth",
         "django.contrib.contenttypes",
         "django.contrib.sessions",
         "django.contrib.messages",
         "django.contrib.staticfiles",
+        "channels",
     ]
     + PROJECT_APPS
     + THIRD_PARTY_LIBRARIES

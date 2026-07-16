@@ -20,6 +20,17 @@ celery==5.5.2
 django-celery-beat==2.8.0
 django-celery-results==2.6.0
 
+# Realtime (chat WebSockets)
+channels==4.2.0
+channels-redis==4.2.1
+daphne==4.1.2
+
+# Chat message storage
+pymongo==4.17.0
+
+# Malware scanning (chat attachments)
+clamd==1.0.2
+
 # Storage (MinIO / S3)
 boto3==1.38.12
 Pillow==11.2.1
