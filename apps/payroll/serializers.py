@@ -28,7 +28,7 @@ class PayrollSerializer(serializers.ModelSerializer):
             # result
             "net_salary",
             # meta
-            "status", "payment_mode", "bank_name", "account_number",
+            "status", "payment_mode", "bank_name", "account_number", "cheque_no", "upi_id", "receipt_no",
             "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]

@@ -34,7 +34,7 @@ class ClientViewSet(BaseModelViewSet):
     serializer_class = ClientSerializer
     filterset_class = ClientFilter
     permission_classes = [IsAuthenticated, ClientPermission]
-    search_fields = ["name", "code", "contact_email"]
+    search_fields = ["name", "code", "contact_email", "contact_person"]
     ordering_fields = ["name", "created_at"]
     ordering = ["name"]
 

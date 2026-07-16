@@ -59,6 +59,9 @@ class Payroll(BaseModel):
     payment_mode   = models.CharField(max_length=20, choices=PaymentMode.choices, default=PaymentMode.BANK_TRANSFER)
     bank_name      = models.CharField(max_length=100, blank=True, default="")
     account_number = models.CharField(max_length=50, blank=True, default="")
+    cheque_no      = models.CharField(max_length=50, blank=True, default="")
+    upi_id         = models.CharField(max_length=100, blank=True, default="")
+    receipt_no     = models.CharField(max_length=50, blank=True, default="")
 
     class Meta:
         db_table = "hrms_payroll"
