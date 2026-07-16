@@ -130,6 +130,13 @@ DEFAULT_TEMPLATES = [
         "default_action_url": "/followups",
     },
     {
+        "event_type": EventType.FOLLOWUP_ASSIGNED,
+        "title_template": "New Follow-up: {title}",
+        "message_template": "You have been assigned to this follow-up.",
+        "severity": NotificationSeverity.INFO,
+        "default_action_url": "/followups",
+    },
+    {
         "event_type": EventType.TODO_ASSIGNED,
         "title_template": "New Task: {title}",
         "message_template": "You have been assigned to this to-do.",
