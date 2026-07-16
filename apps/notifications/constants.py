@@ -51,6 +51,7 @@ class EventType(models.TextChoices):
     PAYMENT_OVERDUE = "payment.overdue", "Payment Overdue"
     FOLLOWUP_DUE_TODAY = "followup.due_today", "Follow-up Due Today"
     FOLLOWUP_OVERDUE = "followup.overdue", "Follow-up Overdue"
+    FOLLOWUP_ASSIGNED = "followup.assigned", "Follow-up Assigned"
     SOCIAL_POST_PENDING_APPROVAL = "social_post.pending_approval", "Social Post Pending Approval"
     SOCIAL_POST_PUBLISHED = "social_post.published", "Social Post Published"
     TODO_ASSIGNED = "todo.assigned", "To-Do Assigned"

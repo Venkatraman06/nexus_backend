@@ -110,15 +110,53 @@ class FollowUpViewSet(BaseModelViewSet):
         
         assign_initial_state(followup)
         followup.refresh_from_db()
+        
+        # Notify assignees
+        assignee_ids = [str(a.id) for a in followup.assignees.all()]
+        assignee_ids = [aid for aid in assignee_ids if aid != str(user.id)]
+        if assignee_ids:
+            from apps.notifications.publisher import publish_event
+            from apps.notifications.constants import EventType, ReferenceType
+            publish_event(
+                event_type=EventType.FOLLOWUP_ASSIGNED,
+                reference_type=ReferenceType.FOLLOWUP,
+                reference_id=str(followup.id),
+                payload={"title": followup.title},
+                actor_id=str(user.id),
+                recipient_ids=assignee_ids,
+                async_delivery=True,
+            )
+            
         from .notifications import publish_followup_reminders
         publish_followup_reminders(followup, actor_id=str(user.pk))
 
     def perform_update(self, serializer):
         ensure_followup_workflow()
         user = self.request.user
+        
+        instance = self.get_object()
+        old_assignee_ids = set(str(a.id) for a in instance.assignees.all())
+        
         followup = serializer.save(updated_by=user)
         assign_initial_state(followup)
         followup.refresh_from_db()
+        
+        # Notify new assignees
+        new_assignee_ids = [str(a.id) for a in followup.assignees.all()]
+        new_assignees = [aid for aid in new_assignee_ids if aid not in old_assignee_ids and aid != str(user.id)]
+        if new_assignees:
+            from apps.notifications.publisher import publish_event
+            from apps.notifications.constants import EventType, ReferenceType
+            publish_event(
+                event_type=EventType.FOLLOWUP_ASSIGNED,
+                reference_type=ReferenceType.FOLLOWUP,
+                reference_id=str(followup.id),
+                payload={"title": followup.title},
+                actor_id=str(user.id),
+                recipient_ids=new_assignees,
+                async_delivery=True,
+            )
+            
         from .notifications import publish_followup_reminders
         publish_followup_reminders(followup, actor_id=str(user.pk))
 
