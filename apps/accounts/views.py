@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 
 from apps.common.viewsets import BaseModelViewSet
 from apps.common.permissions import IsAuthenticated, HasKeycloakPermission
+from apps.common.constants import EmployeeStatus
 import logging
 
 from .models import Employee, EmployeeCertificate
@@ -254,7 +255,7 @@ class EmployeeViewSet(BaseModelViewSet):
         # Exclude system/admin accounts that have no employee code
         qs = super().get_queryset().exclude(employee_code="")
         if self.request.query_params.get("dropdown"):
-            return qs.filter(is_active=True)
+            return qs.filter(is_active=True).exclude(status__in=[EmployeeStatus.INACTIVE, EmployeeStatus.RESIGNED])
         return qs
 
 
@@ -266,6 +267,7 @@ class EmployeeSimpleDropdownView(APIView):
         qs = (
             Employee.objects
             .filter(is_active=True, is_deleted=False)
+            .exclude(status__in=[EmployeeStatus.INACTIVE, EmployeeStatus.RESIGNED])
             .exclude(employee_code="")
             .select_related("designation_ref")
             .order_by("first_name")
@@ -476,6 +478,8 @@ class OrgTreeView(APIView):
         root_id = request.query_params.get("root")
         qs = Employee.objects.filter(
             is_active=True, is_deleted=False
+        ).exclude(
+            status__in=[EmployeeStatus.INACTIVE, EmployeeStatus.RESIGNED]
         ).select_related(
             "manager", "designation_ref", "department_ref"
         ).only(
@@ -547,7 +551,8 @@ class EmployeeSearchView(APIView):
 
         qs = (
             Employee.objects
-            .filter(is_deleted=False)
+            .filter(is_active=True, is_deleted=False)
+            .exclude(status__in=[EmployeeStatus.INACTIVE, EmployeeStatus.RESIGNED])
             .select_related(
                 "designation_ref", "department_ref", "location",
                 "grade", "employment_type", "shift_category", "manager",
