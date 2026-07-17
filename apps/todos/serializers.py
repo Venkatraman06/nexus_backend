@@ -21,7 +21,7 @@ class TodoListSerializer(serializers.ModelSerializer):
         fields = [
             "id", "title", "priority", "priority_label", "description",
             "assignees", "assignees_data", "reporter", "reporter_name",
-            "due_date", "start_time", "end_time", "is_overdue",
+            "start_date", "due_date", "start_time", "end_time", "is_overdue",
             "workflow_state", "workflow_state_name", "workflow_state_slug", "workflow_state_color",
             "can_transition", "allowed_destination_slugs", "created_at", "updated_at",
         ]
@@ -83,7 +83,7 @@ class TodoCreateSerializer(serializers.ModelSerializer):
         model = Todo
         fields = [
             "title", "priority", "description",
-            "assignees", "reporter", "due_date", "start_time", "end_time",
+            "assignees", "reporter", "start_date", "due_date", "start_time", "end_time",
         ]
 
     def validate(self, attrs):

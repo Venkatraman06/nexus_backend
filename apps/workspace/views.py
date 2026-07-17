@@ -17,7 +17,7 @@ FOLLOWUP_TYPE_COLORS = {
     "SITE_VISIT": "#8b5cf6",
 }
 
-TODO_COLOR = "#1677ff"
+TODO_COLOR = "#64748B"
 
 
 def _serialize_time(t) -> str | None:
