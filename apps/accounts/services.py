@@ -103,7 +103,9 @@ class KeycloakSyncService:
                     if existing is None:
                         # Auto-generate employee code for new synced users
                         data["employee_code"] = Employee.objects.generate_employee_code()
-                        Employee.objects.create(**data)
+                        emp = Employee(**data)
+                        emp._skip_keycloak_sync = True
+                        emp.save()
                         created += 1
                     else:
                         changed = any(
@@ -114,6 +116,7 @@ class KeycloakSyncService:
                         if changed:
                             for k, v in data.items():
                                 setattr(existing, k, v)
+                            existing._skip_keycloak_sync = True
                             existing.save()
                             updated += 1
                         else:
@@ -150,9 +153,13 @@ class KeycloakSyncService:
 
         if existing is None:
             data["employee_code"] = Employee.objects.generate_employee_code()
-            return Employee.objects.create(**data)
+            emp = Employee(**data)
+            emp._skip_keycloak_sync = True
+            emp.save()
+            return emp
 
         for k, v in data.items():
             setattr(existing, k, v)
+        existing._skip_keycloak_sync = True
         existing.save()
         return existing

@@ -149,6 +149,34 @@ class Employee(AbstractBaseUser, PermissionsMixin):
             self.is_active = False
         super().save(*args, **kwargs)
 
+        # Sync back to Keycloak if keycloak_id is present and we're not inside keycloak sync itself
+        if getattr(self, "_skip_keycloak_sync", False) is False and self.keycloak_id:
+            import logging
+            logger = logging.getLogger(__name__)
+            try:
+                from apps.accounts.auth_views import _kc_admin
+                from apps.accounts.views import _assign_keycloak_group
+                from packages.keycloak.permissions import invalidate_permissions_cache
+
+                admin = _kc_admin()
+                admin.update_user(
+                    user_id=self.keycloak_id,
+                    payload={
+                        "username": self.username,
+                        "email": self.email,
+                        "firstName": self.first_name,
+                        "lastName": self.last_name,
+                        "enabled": self.is_active,
+                    }
+                )
+
+                if self.keycloak_group:
+                    _assign_keycloak_group(admin, self.keycloak_id, self.keycloak_group)
+
+                invalidate_permissions_cache(self.keycloak_id)
+            except Exception as exc:
+                logger.warning("Keycloak user update failed for %s during save: %s", self.username, exc)
+
     def has_perm(self, perm, obj=None):
         return self.is_active and self.is_superuser
 
