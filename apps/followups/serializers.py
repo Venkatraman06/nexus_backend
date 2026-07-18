@@ -95,6 +95,8 @@ class FollowUpDetailSerializer(FollowUpListSerializer):
 
 
 class FollowUpCreateSerializer(serializers.ModelSerializer):
+    description = serializers.CharField(required=True, allow_blank=False, error_messages={"blank": "Description is required."})
+
     class Meta:
         model = FollowUp
         fields = [
