@@ -17,7 +17,7 @@ FOLLOWUP_TYPE_COLORS = {
     "SITE_VISIT": "#8b5cf6",
 }
 
-TODO_COLOR = "#64748B"
+TODO_COLOR = "#039be5"
 
 
 def _serialize_time(t) -> str | None:
@@ -57,8 +57,9 @@ def _todo_event(item: Todo) -> dict:
         "title": item.title,
         "subtitle": "To-Do",
         "event_kind": "todo",
-        "start_date": str(item.due_date) if item.due_date else None,
+        "start_date": str(item.start_date) if getattr(item, "start_date", None) else (str(item.due_date) if item.due_date else None),
         "end_date": str(item.due_date) if item.due_date else None,
+        "due_date": str(item.due_date) if item.due_date else None,
         "start_time": _serialize_time(item.start_time),
         "end_time": _serialize_time(item.end_time),
         "color": TODO_COLOR,
@@ -104,8 +105,9 @@ class WorkspaceCalendarView(APIView):
         if can_todo:
             todo_qs = Todo.objects.filter(
                 is_deleted=False,
-                due_date__gte=start,
-                due_date__lte=end,
+            ).filter(
+                Q(due_date__gte=start, due_date__lte=end) |
+                Q(start_date__gte=start, start_date__lte=end)
             ).select_related("workflow_state").prefetch_related("assignees")
             if not can_todo_all:
                 todo_qs = todo_qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid)).distinct()
