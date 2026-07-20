@@ -105,8 +105,9 @@ class WorkspaceCalendarView(APIView):
         if can_todo:
             todo_qs = Todo.objects.filter(
                 is_deleted=False,
-                due_date__gte=start,
-                due_date__lte=end,
+            ).filter(
+                Q(due_date__gte=start, due_date__lte=end) |
+                Q(start_date__gte=start, start_date__lte=end)
             ).select_related("workflow_state").prefetch_related("assignees")
             if not can_todo_all:
                 todo_qs = todo_qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid)).distinct()
