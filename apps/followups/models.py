@@ -34,6 +34,7 @@ class FollowUp(BaseModel):
         default=FollowUpPriority.MEDIUM,
     )
     description = models.TextField(blank=True, default="")
+    content = models.TextField(blank=True, default="")
     comments = models.TextField(blank=True, default="")
     assignees = models.ManyToManyField(
         "accounts.Employee",

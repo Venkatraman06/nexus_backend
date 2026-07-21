@@ -151,6 +151,7 @@ class LeaveRequest(BaseModel):
         null=True, blank=True, related_name="reviewed_leaves",
     )
     reviewer_remarks = models.TextField(blank=True, default="")
+    is_acknowledged  = models.BooleanField(default=False)
 
     class Meta:
         db_table = "hrms_leave_request"

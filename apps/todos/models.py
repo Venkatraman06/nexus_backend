@@ -13,6 +13,7 @@ class TodoPriority(models.TextChoices):
 class Todo(BaseModel):
     title = models.CharField(max_length=300)
     description = models.TextField(blank=True, default="")
+    content = models.TextField(blank=True, default="")
     priority = models.CharField(
         max_length=20,
         choices=TodoPriority.choices,

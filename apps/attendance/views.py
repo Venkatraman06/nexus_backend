@@ -861,27 +861,10 @@ class MyLeaveRequestListView(APIView):
         from .leave_utils import get_project_managers_for_employee
         project_managers = get_project_managers_for_employee(request.user)
         
-        # Send notification to HR/admin (existing behavior)
-        from apps.notifications.constants import EventType, ReferenceType
-        from apps.notifications.publisher import publish_event
-        publish_event(
-            EventType.LEAVE_REQUESTED,
-            ReferenceType.LEAVE,
-            str(leave.id),
-            payload={
-                "employee_id": str(request.user.id),
-                "employee_name": request.user.full_name,
-                "leave_type": leave.leave_type.name if leave.leave_type else "",
-                "start_date": leave.start_date.isoformat(),
-                "end_date": leave.end_date.isoformat(),
-                "days_count": leave.days_count,
-            },
-            actor_id=str(request.user.id),
-            async_delivery=True,
-        )
-        
         # Send notifications to project managers
         if project_managers:
+            leave.is_acknowledged = False
+            leave.save(update_fields=['is_acknowledged'])
             for manager in project_managers:
                 publish_event(
                     EventType.LEAVE_REQUESTED,
@@ -898,9 +881,28 @@ class MyLeaveRequestListView(APIView):
                         "project_manager_id": str(manager.id),
                     },
                     actor_id=str(request.user.id),
-                    recipient_ids=[str(manager.id)],  # Specific recipient for project managers
+                    recipient_ids=[str(manager.id)],
                     async_delivery=True,
                 )
+        else:
+            leave.is_acknowledged = True
+            leave.save(update_fields=['is_acknowledged'])
+            publish_event(
+                EventType.LEAVE_REQUESTED,
+                ReferenceType.LEAVE,
+                str(leave.id),
+                payload={
+                    "employee_id": str(request.user.id),
+                    "employee_name": request.user.full_name,
+                    "leave_type": leave.leave_type.name if leave.leave_type else "",
+                    "start_date": leave.start_date.isoformat(),
+                    "end_date": leave.end_date.isoformat(),
+                    "days_count": leave.days_count,
+                },
+                actor_id=str(request.user.id),
+                async_delivery=True,
+            )
+        
 
         return Response(LeaveRequestSerializer(leave).data, status=status.HTTP_201_CREATED)
 
@@ -963,6 +965,52 @@ def is_in_manager_chain(manager, employee):
     return False
 
 
+class LeaveAcknowledgeView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(tags=["leave"])
+    def post(self, request, pk):
+        try:
+            leave = LeaveRequest.objects.get(pk=pk, is_deleted=False)
+        except LeaveRequest.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+            
+        if leave.status != LeaveRequestStatus.PENDING or leave.is_acknowledged:
+            return Response({"detail": "Cannot acknowledge this request."}, status=status.HTTP_400_BAD_REQUEST)
+            
+        from .leave_utils import get_project_managers_for_employee
+        project_managers = get_project_managers_for_employee(leave.employee)
+        is_pm = any(manager.id == request.user.id for manager in project_managers)
+        
+        if not is_pm:
+            return Response({"detail": "Only project managers can acknowledge."}, status=status.HTTP_403_FORBIDDEN)
+            
+        remarks = request.data.get("remarks", "").strip()
+        if remarks:
+            leave.reviewer_remarks = f"PM Acknowledged: {remarks}"
+            
+        leave.is_acknowledged = True
+        leave.save(update_fields=['is_acknowledged', 'reviewer_remarks'])
+        
+        from apps.notifications.constants import EventType, ReferenceType
+        from apps.notifications.publisher import publish_event
+        publish_event(
+            EventType.LEAVE_REQUESTED,
+            ReferenceType.LEAVE,
+            str(leave.id),
+            payload={
+                "employee_id": str(leave.employee.id),
+                "employee_name": leave.employee.full_name,
+                "leave_type": leave.leave_type.name if leave.leave_type else "",
+                "start_date": leave.start_date.isoformat(),
+                "end_date": leave.end_date.isoformat(),
+                "days_count": float(leave.days_count),
+            },
+            actor_id=str(request.user.id),
+            async_delivery=True,
+        )
+        return Response({"detail": "Acknowledged successfully"})
+
 class LeaveReviewView(APIView):
     """Project managers can review leave requests of employees assigned to their projects."""
     permission_classes = [IsAuthenticated]
@@ -993,17 +1041,16 @@ class LeaveReviewView(APIView):
         if leave.employee == request.user and not is_ceo:
             return Response({"detail": "You cannot approve your own leave request."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Enforce reporting hierarchy & project manager authorization
-        is_authorized = self._is_authorized_reviewer(request.user, leave.employee)
-        if leave.employee.manager is not None and is_in_manager_chain(request.user, leave.employee):
-            is_authorized = True
-            
+        # Only HR can approve (or CEO for their own leave)
+        is_hr = request.user.keycloak_group and request.user.keycloak_group.lower() == "hr"
+        is_authorized = is_hr
+        
         if is_ceo and leave.employee == request.user:
             is_authorized = True
 
         if not is_authorized:
             return Response(
-                {"detail": "You are not authorized to review this leave request. Only project managers or reporting managers in the hierarchy can review."},
+                {"detail": "You are not authorized to review this leave request. Only HR can approve."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -1081,6 +1128,20 @@ class LeaveTeamRequestsView(APIView):
     @extend_schema(tags=["leave"])
     def get(self, request):
         reporting_map = get_reporting_hierarchy_map(request.user)
+        
+        from apps.allocation.models import Allocation
+        pm_allocations = Allocation.objects.filter(
+            project__manager=request.user,
+            is_deleted=False,
+            is_active=True
+        ).exclude(employee=request.user)
+        
+        pm_emp_ids = set()
+        for alloc in pm_allocations:
+            pm_emp_ids.add(str(alloc.employee_id))
+            if str(alloc.employee_id) not in reporting_map:
+                reporting_map[str(alloc.employee_id)] = "project"
+
         if not reporting_map:
             return Response({
                 "pending_count": 0,
@@ -1112,7 +1173,9 @@ class LeaveTeamRequestsView(APIView):
         results = []
         for lr in qs:
             lvl = reporting_map[str(lr.employee_id)]
-            can_approve = (lvl == "direct") and (lr.status == "PENDING") and (lr.employee != request.user)
+            is_hr = request.user.keycloak_group and request.user.keycloak_group.lower() == "hr"
+            can_approve = is_hr and (lr.status == "PENDING") and (lr.employee != request.user) and lr.is_acknowledged
+            can_ack = str(lr.employee_id) in pm_emp_ids and not lr.is_acknowledged and (lr.status == "PENDING")
             results.append({
                 "id": str(lr.id),
                 "employee": lr.employee.full_name,
@@ -1129,7 +1192,8 @@ class LeaveTeamRequestsView(APIView):
                 "created_at": str(lr.created_at.date()),
                 "reporting_level": lvl,
                 "can_approve": can_approve,
-                "can_view_only": not can_approve,
+                "can_ack": can_ack,
+                "can_view_only": not (can_approve or can_ack),
             })
 
         return Response({
@@ -1145,6 +1209,12 @@ class AdminLeaveRequestListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from apps.allocation.models import Allocation
+        pm_allocations = Allocation.objects.filter(
+            project__manager=request.user, is_deleted=False, is_active=True
+        ).exclude(employee=request.user)
+        pm_emp_ids = {str(a.employee_id) for a in pm_allocations}
+        
         qs = LeaveRequest.objects.filter(is_deleted=False).select_related(
             "employee", "leave_type", "reviewer"
         ).order_by("-created_at")
@@ -1182,8 +1252,8 @@ class AdminLeaveRequestListView(APIView):
                 "reviewer":         lr.reviewer.full_name if lr.reviewer_id else None,
                 "reviewer_remarks": lr.reviewer_remarks,
                 "created_at":       str(lr.created_at.date()),
-                "can_approve":      (lr.status == LeaveRequestStatus.PENDING) and (lr.employee != request.user) and (lr.employee.manager is None or is_in_manager_chain(request.user, lr.employee)),
-                "can_ack":          False,
+                "can_approve":      (lr.status == LeaveRequestStatus.PENDING) and (lr.employee != request.user) and (request.user.keycloak_group and request.user.keycloak_group.lower() == "hr") and lr.is_acknowledged,
+                "can_ack":          (lr.status == LeaveRequestStatus.PENDING) and not lr.is_acknowledged and (str(lr.employee_id) in pm_emp_ids),
             }
             for lr in qs
         ]

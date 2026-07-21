@@ -21,7 +21,7 @@ class FollowUpListSerializer(serializers.ModelSerializer):
         model = FollowUp
         fields = [
             "id", "title", "type", "type_label", "priority", "priority_label",
-            "description", "comments",
+            "description", "content", "comments",
             "assignees", "assignees_data", "reporter", "reporter_name",
             "start_date", "end_date", "start_time", "end_time", "is_overdue",
             "meeting_mode",
@@ -100,7 +100,7 @@ class FollowUpCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = FollowUp
         fields = [
-            "title", "type", "priority", "description", "comments",
+            "title", "type", "priority", "description", "content", "comments",
             "assignees", "reporter", "start_date", "end_date", "start_time", "end_time",
             "meeting_mode",
         ]
@@ -108,8 +108,14 @@ class FollowUpCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         start = attrs.get("start_time")
         end = attrs.get("end_time")
-        if start and end and end <= start:
-            raise serializers.ValidationError({"end_time": "End time must be after start time."})
+        start_date = attrs.get("start_date") or (self.instance.start_date if self.instance else None)
+        end_date = attrs.get("end_date") or (self.instance.end_date if self.instance else None)
+        
+        if start and end:
+            # Only enforce time order if the follow-up starts and ends on the same day
+            if not start_date or not end_date or start_date == end_date:
+                if end <= start:
+                    raise serializers.ValidationError({"end_time": "End time must be after start time."})
         if "end_date" in attrs:
             try:
                 validate_due_date_on_write(
