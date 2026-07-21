@@ -1,6 +1,4 @@
-from datetime import timedelta
 from django.db.models import Q
-from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -85,12 +83,6 @@ class FollowUpViewSet(BaseModelViewSet):
 
     def list(self, request, *args, **kwargs):
         ensure_followup_workflow()
-        cutoff = timezone.now() - timedelta(days=7)
-        FollowUp.objects.filter(
-            is_deleted=False,
-            workflow_state__slug__in=["completed", "cancelled"],
-            updated_at__lt=cutoff,
-        ).update(is_deleted=True)
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         if page is not None:

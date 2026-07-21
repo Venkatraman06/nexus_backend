@@ -105,8 +105,6 @@ class WorkspaceCalendarView(APIView):
         if can_todo:
             todo_qs = Todo.objects.filter(
                 is_deleted=False,
-            ).exclude(
-                workflow_state__slug__in=["done", "cancelled"]
             ).filter(
                 Q(due_date__gte=start, due_date__lte=end) |
                 Q(start_date__gte=start, start_date__lte=end) |
@@ -119,8 +117,6 @@ class WorkspaceCalendarView(APIView):
         if can_followup:
             fu_qs = FollowUp.objects.filter(
                 is_deleted=False,
-            ).exclude(
-                workflow_state__slug__in=["completed", "cancelled"]
             ).filter(
                 # Overlap: event starts before window ends AND ends after window starts
                 Q(start_date__lte=end, end_date__gte=start) |
