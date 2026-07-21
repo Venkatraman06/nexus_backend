@@ -61,7 +61,7 @@ class TodoViewSet(BaseModelViewSet):
     def _scoped_queryset(self, qs=None):
         qs = qs if qs is not None else super().get_queryset()
         uid = self.request.user.pk
-        return qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid)).distinct()
+        return qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid) | Q(created_by_id=uid)).distinct()
 
     def get_queryset(self):
         if self._can_view_all():
