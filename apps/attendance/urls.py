@@ -10,6 +10,7 @@ from .views import (
     WFHRequestView, WFHRequestAdminView, WFHRequestReviewView,
     ShiftChangeRequestView, ShiftChangeRequestAdminView, ShiftChangeRequestReviewView,
     LeaveTeamMetaView, LeaveTeamRequestsView,
+    AttendanceMonthlyReportView, AttendanceMonthlyReportReviewView, AttendanceMonthlyReportListView,
 )
 
 urlpatterns = [
@@ -46,4 +47,7 @@ urlpatterns = [
     path("leave/team/meta/",                 LeaveTeamMetaView.as_view(),                name="leave-team-meta"),
     path("leave/team/requests/",             LeaveTeamRequestsView.as_view(),            name="leave-team-requests"),
     path("attendance/employee-summary/",     EmployeeMonthlySummaryView.as_view(),       name="employee-monthly-summary"),
+    path("attendance/monthly-report/",        AttendanceMonthlyReportView.as_view(),      name="attendance-monthly-report"),
+    path("attendance/monthly-report/list/",   AttendanceMonthlyReportListView.as_view(),  name="attendance-monthly-report-list"),
+    path("attendance/monthly-report/<uuid:pk>/review/", AttendanceMonthlyReportReviewView.as_view(), name="attendance-monthly-report-review"),
 ]

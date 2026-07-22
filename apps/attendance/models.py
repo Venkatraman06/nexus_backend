@@ -370,3 +370,42 @@ class ShiftChangeRequest(BaseModel):
 
     def __str__(self):
         return f"{self.employee} | {self.request_type} | {self.status}"
+
+
+class AttendanceReportStatus(models.TextChoices):
+    PENDING   = "PENDING",   "Pending PM Review"
+    APPROVED  = "APPROVED",  "Approved by PM"
+    REJECTED  = "REJECTED",  "Rejected by PM"
+    SENT_CEO  = "SENT_CEO",  "Sent to CEO"
+
+
+class AttendanceMonthlyReport(BaseModel):
+    """
+    Monthly attendance report submitted by a manager/HR to the PM.
+    On PM approval, the report is escalated to the CEO.
+    """
+    year          = models.PositiveIntegerField()
+    month         = models.PositiveIntegerField()
+    submitted_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="submitted_attendance_reports",
+    )
+    reviewed_by   = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="reviewed_attendance_reports",
+    )
+    status        = models.CharField(
+        max_length=20, choices=AttendanceReportStatus.choices,
+        default=AttendanceReportStatus.PENDING,
+    )
+    pm_remarks    = models.TextField(blank=True, default="")
+    summary_data  = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table        = "hrms_attendance_monthly_report"
+        unique_together = ("year", "month")
+        ordering        = ["-year", "-month"]
+
+    def __str__(self):
+        import calendar
+        return f"Attendance Report – {calendar.month_name[self.month]} {self.year} [{self.status}]"

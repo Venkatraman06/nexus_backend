@@ -2486,3 +2486,186 @@ class ShiftChangeRequestReviewView(APIView):
             )
 
         return Response({"id": str(r.id), "status": r.status})
+
+
+# ── Monthly Attendance Report Workflow ────────────────────────────────────────
+
+class AttendanceMonthlyReportView(APIView):
+    """
+    GET  /attendance/monthly-report/?year=YYYY&month=MM
+         Returns current report status for that month.
+
+    POST /attendance/monthly-report/
+         { year, month }  – Team lead/HR submits the monthly report to the PM.
+         Generates a summary snapshot and sets status=PENDING.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .models import AttendanceMonthlyReport
+        year  = request.query_params.get("year",  date.today().year)
+        month = request.query_params.get("month", date.today().month)
+        try:
+            year, month = int(year), int(month)
+        except ValueError:
+            return Response({"detail": "Invalid year/month."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            report = AttendanceMonthlyReport.objects.get(year=year, month=month, is_deleted=False)
+            return Response(_report_dict(report))
+        except AttendanceMonthlyReport.DoesNotExist:
+            return Response(None, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        from .models import AttendanceMonthlyReport, AttendanceReportStatus
+        from apps.accounts.models import Employee
+
+        year  = request.data.get("year",  date.today().year)
+        month = request.data.get("month", date.today().month)
+        try:
+            year, month = int(year), int(month)
+        except (ValueError, TypeError):
+            return Response({"detail": "Invalid year/month."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if AttendanceMonthlyReport.objects.filter(year=year, month=month, is_deleted=False).exists():
+            return Response({"detail": "Report for this month already submitted."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Build summary snapshot
+        records = AttendanceRecord.objects.filter(
+            date__year=year, date__month=month, is_deleted=False
+        )
+        summary = {
+            "total_employees": Employee.objects.filter(is_active=True, is_deleted=False).count(),
+            "present":  records.filter(status=AttendanceStatus.PRESENT).count(),
+            "absent":   records.filter(status=AttendanceStatus.ABSENT).count(),
+            "wfh":      records.filter(status=AttendanceStatus.WFH).count(),
+            "half_day": records.filter(status=AttendanceStatus.HALF_DAY).count(),
+            "on_leave": records.filter(status=AttendanceStatus.ON_LEAVE).count(),
+        }
+
+        report = AttendanceMonthlyReport.objects.create(
+            year=year,
+            month=month,
+            submitted_by=request.user,
+            status=AttendanceReportStatus.PENDING,
+            summary_data=summary,
+        )
+
+        # Notify all PMs (is_manager=True)
+        try:
+            from apps.notifications.publisher import publish_event
+            from apps.notifications.constants import EventType, ReferenceType
+            pm_ids = list(
+                Employee.objects.filter(is_manager=True, is_active=True, is_deleted=False)
+                .exclude(id=request.user.pk)
+                .values_list("id", flat=True)
+            )
+            if pm_ids:
+                import calendar as _cal
+                publish_event(
+                    event_type=EventType.TIMESHEET_SUBMITTED,
+                    reference_type=ReferenceType.EMPLOYEE,
+                    reference_id=str(report.id),
+                    payload={
+                        "title": f"Attendance Report – {_cal.month_name[month]} {year}",
+                        "message": "A monthly attendance report is pending your approval.",
+                    },
+                    actor_id=str(request.user.pk),
+                    recipient_ids=[str(pid) for pid in pm_ids],
+                    async_delivery=True,
+                )
+        except Exception:
+            pass
+
+        return Response(_report_dict(report), status=status.HTTP_201_CREATED)
+
+
+class AttendanceMonthlyReportReviewView(APIView):
+    """
+    POST /attendance/monthly-report/<id>/review/
+    PM approves or rejects the monthly report.
+    On approval → status becomes APPROVED and the report is forwarded to the CEO.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        from .models import AttendanceMonthlyReport, AttendanceReportStatus
+        from apps.accounts.models import Employee
+
+        try:
+            report = AttendanceMonthlyReport.objects.get(id=pk, is_deleted=False)
+        except AttendanceMonthlyReport.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        action = request.data.get("action")
+        if action not in ("APPROVE", "REJECT"):
+            return Response({"detail": "action must be APPROVE or REJECT."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if report.status not in (AttendanceReportStatus.PENDING,):
+            return Response({"detail": "Report is not in a reviewable state."}, status=status.HTTP_400_BAD_REQUEST)
+
+        report.status      = AttendanceReportStatus.APPROVED if action == "APPROVE" else AttendanceReportStatus.REJECTED
+        report.reviewed_by = request.user
+        report.pm_remarks  = request.data.get("pm_remarks", "")
+        report.save(update_fields=["status", "reviewed_by", "pm_remarks"])
+
+        if report.status == AttendanceReportStatus.APPROVED:
+            # Notify all CEOs / superusers
+            try:
+                from apps.notifications.publisher import publish_event
+                from apps.notifications.constants import EventType, ReferenceType
+                import calendar as _cal
+                ceo_ids = list(
+                    Employee.objects.filter(is_superuser=True, is_active=True, is_deleted=False)
+                    .exclude(id=request.user.pk)
+                    .values_list("id", flat=True)
+                )
+                if ceo_ids:
+                    publish_event(
+                        event_type=EventType.TIMESHEET_APPROVED,
+                        reference_type=ReferenceType.EMPLOYEE,
+                        reference_id=str(report.id),
+                        payload={
+                            "title": f"Attendance Report – {_cal.month_name[report.month]} {report.year}",
+                            "message": f"The monthly attendance report has been approved by {request.user.full_name}. Please review.",
+                        },
+                        actor_id=str(request.user.pk),
+                        recipient_ids=[str(cid) for cid in ceo_ids],
+                        async_delivery=True,
+                    )
+                report.status = AttendanceReportStatus.SENT_CEO
+                report.save(update_fields=["status"])
+            except Exception:
+                pass
+
+        return Response(_report_dict(report))
+
+
+class AttendanceMonthlyReportListView(APIView):
+    """
+    GET /attendance/monthly-report/list/
+    Returns all submitted monthly reports (for PM/CEO dashboard).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .models import AttendanceMonthlyReport
+        reports = AttendanceMonthlyReport.objects.filter(is_deleted=False).order_by("-year", "-month")[:24]
+        return Response([_report_dict(r) for r in reports])
+
+
+def _report_dict(report):
+    import calendar as _cal
+    return {
+        "id":             str(report.id),
+        "year":           report.year,
+        "month":          report.month,
+        "month_label":    f"{_cal.month_name[report.month]} {report.year}",
+        "status":         report.status,
+        "status_label":   report.get_status_display(),
+        "pm_remarks":     report.pm_remarks,
+        "summary_data":   report.summary_data,
+        "submitted_by":   report.submitted_by.full_name if report.submitted_by_id else None,
+        "reviewed_by":    report.reviewed_by.full_name  if report.reviewed_by_id  else None,
+        "created_at":     report.created_at.isoformat() if report.created_at else None,
+    }
