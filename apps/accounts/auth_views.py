@@ -93,25 +93,32 @@ class TokenView(APIView):
     authentication_classes = []
 
     def post(self, request):
-        username = (request.data.get("username") or "").strip()
+        username_input = (request.data.get("username") or "").strip()
         password = (request.data.get("password") or "").strip()
-        if not username or not password:
+        if not username_input or not password:
             return Response(
                 {"error": "username and password are required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        username = username_input
+        if "@" in username_input:
+            from apps.accounts.models import Employee
+            emp_by_email = Employee.objects.filter(email__iexact=username_input).first()
+            if emp_by_email and emp_by_email.username:
+                username = emp_by_email.username
 
         try:
             kc = _kc_openid()
             token_data = kc.token(username, password)
         except Exception as exc:
             err = str(exc).lower()
+            logger.warning("Keycloak login failed for '%s' (resolved '%s'): %s", username_input, username, exc)
             if "401" in err or "invalid_grant" in err or "unauthorized" in err:
                 return Response(
                     {"error": "Invalid username or password"},
                     status=status.HTTP_401_UNAUTHORIZED,
                 )
-            logger.error("Keycloak token error: %s", exc)
             return Response(
                 {"error": "Authentication service unavailable"},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
