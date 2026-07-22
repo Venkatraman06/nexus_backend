@@ -103,6 +103,15 @@ class BillingType(MasterBase):
         verbose_name_plural = _("billing types")
 
 
+class FollowupTypeMaster(MasterBase):
+    color = models.CharField(max_length=50, blank=True, default="#6366F1")
+
+    class Meta(MasterBase.Meta):
+        db_table = "master_followup_type"
+        verbose_name = _("followup type")
+        verbose_name_plural = _("followup types")
+
+
 class RateCard(models.Model):
     """
     Daily billing / HR cost rates per designation × department combination.

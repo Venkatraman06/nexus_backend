@@ -26,7 +26,7 @@ class FollowUpPriority(models.TextChoices):
 class FollowUp(BaseModel):
     title = models.CharField(max_length=300)
     type = models.CharField(
-        max_length=20, choices=FollowUpType.choices, default=FollowUpType.CALL
+        max_length=100, default="CALL"
     )
     priority = models.CharField(
         max_length=20,

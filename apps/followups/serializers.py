@@ -7,9 +7,15 @@ from .models import FollowUp
 
 class FollowUpListSerializer(serializers.ModelSerializer):
     assignees_data = serializers.SerializerMethodField()
-    reporter_name = serializers.SerializerMethodField()
-    type_label = serializers.CharField(source="get_type_display", read_only=True)
+    type_label = serializers.SerializerMethodField()
     priority_label = serializers.CharField(source="get_priority_display", read_only=True)
+
+    def get_type_label(self, obj):
+        from .models import FollowUpType
+        for choice_val, choice_lbl in FollowUpType.choices:
+            if choice_val == obj.type:
+                return choice_lbl
+        return obj.type.replace("_", " ").title() if obj.type else ""
     workflow_state_name = serializers.CharField(source="workflow_state.name", read_only=True, default="")
     workflow_state_slug = serializers.CharField(source="workflow_state.slug", read_only=True, default="")
     workflow_state_color = serializers.CharField(source="workflow_state.color_code", read_only=True, default="")
