@@ -19,7 +19,7 @@ class TodoListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Todo
         fields = [
-            "id", "title", "priority", "priority_label", "description", "content",
+            "id", "title", "priority", "priority_label", "description", "content", "comments",
             "assignees", "assignees_data", "reporter", "reporter_name",
             "start_date", "due_date", "start_time", "end_time", "is_overdue",
             "workflow_state", "workflow_state_name", "workflow_state_slug", "workflow_state_color",
@@ -82,7 +82,7 @@ class TodoCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Todo
         fields = [
-            "title", "priority", "description", "content",
+            "title", "priority", "description", "content", "comments",
             "assignees", "reporter", "start_date", "due_date", "start_time", "end_time",
         ]
 
