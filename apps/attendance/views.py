@@ -2527,10 +2527,21 @@ class AttendanceMonthlyReportView(APIView):
 
     def post(self, request):
         from .models import AttendanceMonthlyReport, AttendanceReportStatus
-        from apps.accounts.models import Employee
+        from apps.projects.models import Project
 
-        is_manager = getattr(request.user, "is_manager", False)
-        if not is_manager:
+        reporting_map = get_reporting_hierarchy_map(request.user)
+        team_ids = list(reporting_map.keys())
+        has_team = len(team_ids) > 0
+        is_pm = Project.objects.filter(manager=request.user, is_deleted=False).exists()
+
+        is_allowed = (
+            getattr(request.user, "is_manager", False)
+            or getattr(request.user, "is_pmo", False)
+            or getattr(request.user, "is_staff", False)
+            or has_team
+            or is_pm
+        )
+        if not is_allowed:
             return Response({"detail": "Only reporting managers can submit attendance reports."}, status=status.HTTP_403_FORBIDDEN)
 
         year  = request.data.get("year",  date.today().year)
@@ -2544,21 +2555,32 @@ class AttendanceMonthlyReportView(APIView):
         if AttendanceMonthlyReport.objects.filter(year=year, month=month, reporting_manager=request.user, is_deleted=False).exists():
             return Response({"detail": "You have already submitted the report for this month."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Build summary: only for employees who report to this manager
-        reporting_map = get_reporting_hierarchy_map(request.user)
-        team_ids = list(reporting_map.keys())
+        # Build summary
+        if team_ids:
+            records = AttendanceRecord.objects.filter(
+                employee_id__in=team_ids,
+                date__year=year, date__month=month, is_deleted=False
+            )
+            total_count = len(team_ids)
+        else:
+            all_emp_ids = list(
+                Employee.objects.filter(is_active=True, is_deleted=False)
+                .exclude(is_superuser=True)
+                .values_list("id", flat=True)
+            )
+            records = AttendanceRecord.objects.filter(
+                employee_id__in=all_emp_ids,
+                date__year=year, date__month=month, is_deleted=False
+            )
+            total_count = len(all_emp_ids)
 
-        records = AttendanceRecord.objects.filter(
-            employee_id__in=team_ids,
-            date__year=year, date__month=month, is_deleted=False
-        )
         summary = {
-            "total_team": len(team_ids),
-            "present":    records.filter(status=AttendanceStatus.PRESENT).count(),
-            "absent":     records.filter(status=AttendanceStatus.ABSENT).count(),
-            "wfh":        records.filter(status=AttendanceStatus.WFH).count(),
-            "half_day":   records.filter(status=AttendanceStatus.HALF_DAY).count(),
-            "on_leave":   records.filter(status=AttendanceStatus.ON_LEAVE).count(),
+            "total_team":   total_count,
+            "present":      records.filter(status=AttendanceStatus.PRESENT).count(),
+            "absent":       records.filter(status=AttendanceStatus.ABSENT).count(),
+            "wfh":          records.filter(status=AttendanceStatus.WFH).count(),
+            "half_day":     records.filter(status=AttendanceStatus.HALF_DAY).count(),
+            "on_leave":     records.filter(status=AttendanceStatus.ON_LEAVE).count(),
             "manager_name": request.user.full_name,
         }
 
