@@ -103,6 +103,8 @@ class FollowUpDetailSerializer(FollowUpListSerializer):
 
 class FollowUpCreateSerializer(serializers.ModelSerializer):
     description = serializers.CharField(required=True, allow_blank=False, error_messages={"blank": "Description is required."})
+    start_date = serializers.DateField(required=True, allow_null=False, error_messages={"null": "Start date is required.", "required": "Start date is required."})
+    end_date = serializers.DateField(required=True, allow_null=False, error_messages={"null": "End date is required.", "required": "End date is required."})
 
     class Meta:
         model = FollowUp
@@ -117,10 +119,15 @@ class FollowUpCreateSerializer(serializers.ModelSerializer):
         end = attrs.get("end_time")
         start_date = attrs.get("start_date") or (self.instance.start_date if self.instance else None)
         end_date = attrs.get("end_date") or (self.instance.end_date if self.instance else None)
+
+        if not start_date:
+            raise serializers.ValidationError({"start_date": "Start date is required."})
+        if not end_date:
+            raise serializers.ValidationError({"end_date": "End date is required."})
         
         if start and end:
             # Only enforce time order if the follow-up starts and ends on the same day
-            if not start_date or not end_date or start_date == end_date:
+            if start_date == end_date:
                 if end <= start:
                     raise serializers.ValidationError({"end_time": "End time must be after start time."})
         if "end_date" in attrs:
