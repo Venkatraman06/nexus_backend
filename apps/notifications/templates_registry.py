@@ -137,6 +137,20 @@ DEFAULT_TEMPLATES = [
         "default_action_url": "/followups",
     },
     {
+        "event_type": EventType.FOLLOWUP_COMMENTED,
+        "title_template": "New Comment: {title}",
+        "message_template": "{actor_name} commented on follow-up \"{title}\".",
+        "severity": NotificationSeverity.INFO,
+        "default_action_url": "/followups?id={reference_id}",
+    },
+    {
+        "event_type": EventType.FOLLOWUP_UPDATED,
+        "title_template": "Follow-up Updated: {title}",
+        "message_template": "{actor_name} updated follow-up \"{title}\".",
+        "severity": NotificationSeverity.INFO,
+        "default_action_url": "/followups?id={reference_id}",
+    },
+    {
         "event_type": EventType.TODO_ASSIGNED,
         "title_template": "New Task: {title}",
         "message_template": "You have been assigned to this to-do.",

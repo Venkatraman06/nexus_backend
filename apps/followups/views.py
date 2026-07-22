@@ -157,6 +157,27 @@ class FollowUpViewSet(BaseModelViewSet):
                 recipient_ids=new_assignees,
                 async_delivery=True,
             )
+
+        # Notify existing assignees + reporter about comments/updates
+        all_recipients = set(new_assignee_ids)
+        if followup.reporter_id:
+            all_recipients.add(str(followup.reporter_id))
+        all_recipients.discard(str(user.id))
+
+        if all_recipients:
+            from apps.notifications.publisher import publish_event
+            from apps.notifications.constants import EventType, ReferenceType
+            is_comment = "comments" in serializer.validated_data and serializer.validated_data["comments"] != instance.comments
+            event_type = EventType.FOLLOWUP_COMMENTED if is_comment else EventType.FOLLOWUP_UPDATED
+            publish_event(
+                event_type=event_type,
+                reference_type=ReferenceType.FOLLOWUP,
+                reference_id=str(followup.id),
+                payload={"title": followup.title, "actor_name": user.full_name},
+                actor_id=str(user.id),
+                recipient_ids=list(all_recipients),
+                async_delivery=True,
+            )
             
         from .notifications import publish_followup_reminders
         publish_followup_reminders(followup, actor_id=str(user.pk))
