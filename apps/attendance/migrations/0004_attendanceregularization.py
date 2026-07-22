@@ -20,6 +20,8 @@ class Migration(migrations.Migration):
                 ('updated_at', models.DateTimeField(auto_now=True)),
                 ('is_active', models.BooleanField(default=True)),
                 ('is_deleted', models.BooleanField(default=False)),
+                ('created_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='attendance_attendanceregularizationrequest_created', to=settings.AUTH_USER_MODEL)),
+                ('updated_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='attendance_attendanceregularizationrequest_updated', to=settings.AUTH_USER_MODEL)),
                 ('date', models.DateField()),
                 ('reason', models.CharField(
                     choices=[
