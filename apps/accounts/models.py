@@ -121,6 +121,8 @@ class Employee(AbstractBaseUser, PermissionsMixin):
         null=True,
         blank=True,
     )
+    totp_secret = models.CharField(max_length=64, blank=True, null=True, help_text="Base32 TOTP secret for Google/Microsoft Authenticator")
+    totp_enabled = models.BooleanField(default=False, help_text="Is 2FA enabled for this employee")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -421,6 +421,7 @@ class MeView(APIView):
             "is_manager":       getattr(me, "is_manager", False),
             "is_staff":         is_staff,
             "is_superuser":     is_superuser,
+            "totp_enabled":     getattr(me, "totp_enabled", False),
             "permissions":      effective_perms,
             "phone_number":     getattr(me, "phone_number", "") or "",
             "bio":              getattr(me, "bio", "") or "",
