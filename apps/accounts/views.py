@@ -71,7 +71,7 @@ class EmployeeViewSet(BaseModelViewSet):
     )
     permission_classes = [IsAuthenticated, HasKeycloakPermission]
     ordering_fields = ["employee_code", "first_name", "last_name", "created_at", "status"]
-    ordering = ["-employee_code"]
+    ordering = ["employee_code"]
     filterset_fields = ["status", "is_pmo", "is_manager", "shift_applicable", "keycloak_group"]
 
     PERMISSION_MAP = {
@@ -254,8 +254,8 @@ class EmployeeViewSet(BaseModelViewSet):
         # Exclude system/admin accounts that have no employee code
         qs = super().get_queryset().exclude(employee_code="")
         if self.request.query_params.get("dropdown"):
-            return qs.filter(is_active=True).exclude(status__in=[EmployeeStatus.INACTIVE, EmployeeStatus.RESIGNED])
-        return qs
+            return qs.filter(is_active=True).exclude(status__in=[EmployeeStatus.INACTIVE, EmployeeStatus.RESIGNED]).order_by("employee_code")
+        return qs.order_by("employee_code")
 
 
 class EmployeeSimpleDropdownView(APIView):
