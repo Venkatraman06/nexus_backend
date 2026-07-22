@@ -59,9 +59,10 @@ class FollowUpViewSet(BaseModelViewSet):
         return ctx
 
     def _can_view_all(self) -> bool:
-        """Only users with explicit view_all permission see every follow-up."""
+        """Only when view_all=true query param is explicitly passed AND user has permission."""
+        view_all_param = self.request.query_params.get("view_all") == "true"
         user_perms = getattr(self.request, "user_permissions", [])
-        return self.VIEW_ALL_PERMISSION in user_perms
+        return view_all_param and (self.VIEW_ALL_PERMISSION in user_perms)
 
     def _scoped_queryset(self, qs=None):
         """Assignee or reporter (creator) only, unless view_all."""

@@ -95,8 +95,9 @@ class WorkspaceCalendarView(APIView):
         user = request.user
         uid = user.pk
         perms = getattr(request, "user_permissions", [])
-        can_followup_all = "pmt.crm.followup.view_all" in perms
-        can_followup = "pmt.crm.followup.view" in perms or can_followup_all
+        view_all_param = request.query_params.get("view_all") == "true"
+        can_followup_all = view_all_param and ("pmt.crm.followup.view_all" in perms)
+        can_followup = "pmt.crm.followup.view" in perms or ("pmt.crm.followup.view_all" in perms)
         can_todo = can_followup
         can_todo_all = can_followup_all
 
