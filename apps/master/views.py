@@ -195,9 +195,19 @@ class BillingTypeDropdownView(DropdownView):
     serializer_class = BillingTypeDropdownSerializer
 
 
+_FOLLOWUP_MASTER_PERMS = {
+    "list":           None,
+    "retrieve":       None,
+    "create":         None,
+    "update":         "pmt.master.project.update",
+    "partial_update": "pmt.master.project.update",
+    "destroy":        "pmt.master.project.delete",
+}
+
+
 class FollowupTypeViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated, HasKeycloakPermission]
-    PERMISSION_MAP = _PROJECT_MASTER_PERMS
+    PERMISSION_MAP = _FOLLOWUP_MASTER_PERMS
     serializer_class = FollowupTypeMasterSerializer
     queryset = FollowupTypeMaster.objects.all()
     filterset_fields = ["is_active"]
