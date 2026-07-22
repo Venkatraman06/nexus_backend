@@ -133,7 +133,7 @@ class Employee(AbstractBaseUser, PermissionsMixin):
         db_table = "hrms_employee"
         verbose_name = _("employee")
         verbose_name_plural = _("employees")
-        ordering = ["first_name", "last_name"]
+        ordering = ["-employee_code"]
 
     def __str__(self):
         return self.full_name or self.username
