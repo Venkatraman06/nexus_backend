@@ -11,6 +11,7 @@ from .views import (
     ShiftChangeRequestView, ShiftChangeRequestAdminView, ShiftChangeRequestReviewView,
     LeaveTeamMetaView, LeaveTeamRequestsView,
     AttendanceMonthlyReportView, AttendanceMonthlyReportReviewView, AttendanceMonthlyReportListView,
+    AttendanceRegularizationView, AttendanceRegularizationAdminView, AttendanceRegularizationReviewView,
 )
 
 urlpatterns = [
@@ -50,4 +51,7 @@ urlpatterns = [
     path("attendance/monthly-report/",        AttendanceMonthlyReportView.as_view(),      name="attendance-monthly-report"),
     path("attendance/monthly-report/list/",   AttendanceMonthlyReportListView.as_view(),  name="attendance-monthly-report-list"),
     path("attendance/monthly-report/<uuid:pk>/review/", AttendanceMonthlyReportReviewView.as_view(), name="attendance-monthly-report-review"),
+    path("attendance/regularization/",              AttendanceRegularizationView.as_view(),        name="attendance-regularization"),
+    path("attendance/regularization/admin/",         AttendanceRegularizationAdminView.as_view(),   name="attendance-regularization-admin"),
+    path("attendance/regularization/<uuid:pk>/review/", AttendanceRegularizationReviewView.as_view(), name="attendance-regularization-review"),
 ]

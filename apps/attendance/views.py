@@ -2669,3 +2669,185 @@ def _report_dict(report):
         "reviewed_by":    report.reviewed_by.full_name  if report.reviewed_by_id  else None,
         "created_at":     report.created_at.isoformat() if report.created_at else None,
     }
+
+
+# ── Attendance Regularization Requests ────────────────────────────────────────
+
+def _reg_dict(r):
+    return {
+        "id":               str(r.id),
+        "employee_id":      str(r.employee_id),
+        "employee_name":    r.employee.full_name if r.employee_id else "",
+        "employee_code":    r.employee.employee_code if r.employee_id else "",
+        "date":             str(r.date),
+        "reason":           r.reason,
+        "reason_label":     r.get_reason_display(),
+        "requested_status": r.requested_status,
+        "check_in":         r.check_in.strftime("%H:%M") if r.check_in else None,
+        "check_out":        r.check_out.strftime("%H:%M") if r.check_out else None,
+        "remarks":          r.remarks,
+        "status":           r.status,
+        "reviewer_remarks": r.reviewer_remarks,
+        "reviewed_by":      r.reviewed_by.full_name if r.reviewed_by_id else None,
+        "created_at":       r.created_at.isoformat() if r.created_at else None,
+    }
+
+
+class AttendanceRegularizationView(APIView):
+    """
+    GET  /attendance/regularization/        – Employee: my requests.
+    POST /attendance/regularization/        – Employee: raise a new request.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .models import AttendanceRegularizationRequest
+        qs = AttendanceRegularizationRequest.objects.filter(
+            employee=request.user, is_deleted=False
+        ).select_related("employee", "reviewed_by").order_by("-created_at")[:50]
+        return Response([_reg_dict(r) for r in qs])
+
+    def post(self, request):
+        from .models import AttendanceRegularizationRequest, RegularizationReason, AttendanceStatus as AS
+
+        req_date = request.data.get("date")
+        reason   = request.data.get("reason", RegularizationReason.FORGOT_CHECKIN)
+        req_stat = request.data.get("requested_status", AS.PRESENT)
+
+        if not req_date:
+            return Response({"detail": "date is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate
+        valid_reasons  = [c[0] for c in RegularizationReason.choices]
+        valid_statuses = [c[0] for c in AS.choices]
+        if reason not in valid_reasons:
+            return Response({"detail": "Invalid reason."}, status=status.HTTP_400_BAD_REQUEST)
+        if req_stat not in valid_statuses:
+            return Response({"detail": "Invalid requested_status."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Parse times
+        def parse_time(val):
+            if not val:
+                return None
+            import datetime as _dt
+            for fmt in ("%H:%M:%S", "%H:%M"):
+                try:
+                    return _dt.datetime.strptime(val, fmt).time()
+                except ValueError:
+                    pass
+            return None
+
+        reg = AttendanceRegularizationRequest.objects.create(
+            employee         = request.user,
+            date             = req_date,
+            reason           = reason,
+            requested_status = req_stat,
+            check_in         = parse_time(request.data.get("check_in")),
+            check_out        = parse_time(request.data.get("check_out")),
+            remarks          = request.data.get("remarks", ""),
+            status           = "PENDING",
+        )
+
+        # Notify all PMs
+        try:
+            from apps.notifications.publisher import publish_event
+            from apps.notifications.constants import EventType, ReferenceType
+            from apps.accounts.models import Employee
+            pm_ids = list(
+                Employee.objects.filter(is_manager=True, is_active=True, is_deleted=False)
+                .exclude(id=request.user.pk)
+                .values_list("id", flat=True)
+            )
+            if pm_ids:
+                publish_event(
+                    event_type=EventType.TIMESHEET_SUBMITTED,
+                    reference_type=ReferenceType.EMPLOYEE,
+                    reference_id=str(reg.id),
+                    payload={
+                        "title": f"Attendance Regularization – {request.user.full_name}",
+                        "message": (
+                            f"{request.user.full_name} has requested attendance regularization "
+                            f"for {req_date} ({reg.get_reason_display()})."
+                        ),
+                    },
+                    actor_id=str(request.user.pk),
+                    recipient_ids=[str(pid) for pid in pm_ids],
+                    async_delivery=True,
+                )
+        except Exception:
+            pass
+
+        return Response(_reg_dict(reg), status=status.HTTP_201_CREATED)
+
+
+class AttendanceRegularizationAdminView(APIView):
+    """
+    GET /attendance/regularization/admin/
+    PM / HR: list all regularization requests.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .models import AttendanceRegularizationRequest
+
+        req_status = request.query_params.get("status", "")
+        qs = AttendanceRegularizationRequest.objects.filter(
+            is_deleted=False
+        ).select_related("employee", "reviewed_by").order_by("-created_at")[:200]
+        if req_status:
+            qs = qs.filter(status=req_status)
+        pending_count = AttendanceRegularizationRequest.objects.filter(status="PENDING", is_deleted=False).count()
+        return Response({"count": qs.count(), "results": [_reg_dict(r) for r in qs], "pending_count": pending_count})
+
+
+class AttendanceRegularizationReviewView(APIView):
+    """
+    POST /attendance/regularization/<id>/review/
+    PM approves or rejects a regularization request.
+    On approval, the attendance record is auto-created/updated.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        from .models import AttendanceRegularizationRequest
+
+        try:
+            reg = AttendanceRegularizationRequest.objects.get(id=pk, is_deleted=False)
+        except AttendanceRegularizationRequest.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        action = request.data.get("action")
+        if action not in ("APPROVE", "REJECT"):
+            return Response({"detail": "action must be APPROVE or REJECT."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if reg.status != "PENDING":
+            return Response({"detail": "Request is not pending."}, status=status.HTTP_400_BAD_REQUEST)
+
+        reg.status           = "APPROVED" if action == "APPROVE" else "REJECTED"
+        reg.reviewed_by      = request.user
+        reg.reviewer_remarks = request.data.get("reviewer_remarks", "")
+        reg.save(update_fields=["status", "reviewed_by", "reviewer_remarks"])
+
+        if reg.status == "APPROVED":
+            # Auto-create or update the AttendanceRecord
+            record, created = AttendanceRecord.objects.get_or_create(
+                employee=reg.employee,
+                date=reg.date,
+                defaults={
+                    "status":    reg.requested_status,
+                    "check_in":  reg.check_in,
+                    "check_out": reg.check_out,
+                    "notes":     f"Regularized by {request.user.full_name} via request.",
+                },
+            )
+            if not created:
+                # Update existing record
+                if reg.check_in:
+                    record.check_in  = reg.check_in
+                if reg.check_out:
+                    record.check_out = reg.check_out
+                record.status = reg.requested_status
+                record.notes  = (record.notes or "") + f"\nRegularized by {request.user.full_name}."
+                record.save(update_fields=["check_in", "check_out", "status", "notes"])
+
+        return Response(_reg_dict(reg))
