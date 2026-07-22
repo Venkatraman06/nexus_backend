@@ -373,33 +373,32 @@ class ShiftChangeRequest(BaseModel):
 
 
 class AttendanceReportStatus(models.TextChoices):
-    PENDING   = "PENDING",   "Pending PM Review"
-    APPROVED  = "APPROVED",  "Approved by PM"
-    REJECTED  = "REJECTED",  "Rejected by PM"
-    SENT_CEO  = "SENT_CEO",  "Sent to CEO"
+    PENDING          = "PENDING",          "Pending – Submitted to CEO"
+    APPROVED_BY_CEO  = "APPROVED_BY_CEO",  "Approved by CEO"
+    REJECTED_BY_CEO  = "REJECTED_BY_CEO",  "Rejected by CEO"
 
 
 class AttendanceMonthlyReport(BaseModel):
     """
-    Monthly attendance report submitted by a manager/HR to the PM.
-    On PM approval, the report is escalated to the CEO.
+    Reporting Manager (PM) submits the monthly attendance report to the CEO.
+    CEO approves or rejects. On rejection, the PM sees the reason.
     """
-    year          = models.PositiveIntegerField()
-    month         = models.PositiveIntegerField()
-    submitted_by  = models.ForeignKey(
+    year              = models.PositiveIntegerField()
+    month             = models.PositiveIntegerField()
+    reporting_manager = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, blank=True, related_name="submitted_attendance_reports",
     )
-    reviewed_by   = models.ForeignKey(
+    reviewed_by       = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, blank=True, related_name="reviewed_attendance_reports",
     )
-    status        = models.CharField(
+    status            = models.CharField(
         max_length=20, choices=AttendanceReportStatus.choices,
         default=AttendanceReportStatus.PENDING,
     )
-    pm_remarks    = models.TextField(blank=True, default="")
-    summary_data  = models.JSONField(default=dict, blank=True)
+    ceo_remarks       = models.TextField(blank=True, default="")
+    summary_data      = models.JSONField(default=dict, blank=True)
 
     class Meta:
         db_table        = "hrms_attendance_monthly_report"
