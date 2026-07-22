@@ -1,3 +1,4 @@
+from rest_framework import serializers
 from .models import (
     Designation, Department, Location, Grade, EmploymentType,
     ShiftCategory, RateCard, ClientCategory, BusinessType, BillingType,
