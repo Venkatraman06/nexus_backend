@@ -7,6 +7,7 @@ from .models import FollowUp
 
 class FollowUpListSerializer(serializers.ModelSerializer):
     assignees_data = serializers.SerializerMethodField()
+    reporter_name = serializers.SerializerMethodField()
     type_label = serializers.SerializerMethodField()
     priority_label = serializers.CharField(source="get_priority_display", read_only=True)
 
