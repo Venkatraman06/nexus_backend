@@ -7,16 +7,17 @@ from rest_framework.views import APIView
 from apps.common.permissions import HasKeycloakPermission, IsAuthenticated
 from apps.followups.models import FollowUp
 from apps.todos.models import Todo
+from apps.meetings.models import Meeting
 
 
 FOLLOWUP_TYPE_COLORS = {
     "EMAIL": "#6366f1",
     "CALL": "#f59e0b",
-    "MEETING": "#1677ff",
     "WHATSAPP": "#22c55e",
     "SITE_VISIT": "#8b5cf6",
 }
 
+MEETING_COLOR = "#1677ff"
 TODO_COLOR = "#039be5"
 
 
@@ -46,6 +47,29 @@ def _followup_event(item: FollowUp) -> dict:
         "description": item.description,
         "comments": item.comments,
         "note": item.comments,
+    }
+
+def _meeting_event(item: Meeting) -> dict:
+    slug = item.workflow_state.slug if item.workflow_state else ""
+    mode = getattr(item, "meeting_mode", None)
+    return {
+        "id": str(item.id),
+        "source": "meeting",
+        "title": item.title,
+        "subtitle": f"Meeting ({item.get_meeting_mode_display()})" if mode else "Meeting",
+        "event_kind": "meeting",
+        "start_date": str(item.start_date) if getattr(item, "start_date", None) else (str(item.end_date) if getattr(item, "end_date", None) else None),
+        "end_date": str(item.end_date) if getattr(item, "end_date", None) else None,
+        "start_time": _serialize_time(item.start_time),
+        "end_time": _serialize_time(item.end_time),
+        "color": MEETING_COLOR,
+        "priority": item.priority,
+        "workflow_state_slug": slug,
+        "workflow_state_name": item.workflow_state.name if item.workflow_state else "",
+        "assignee_name": ", ".join(a.full_name for a in item.assignees.all()) if item.assignees.exists() else None,
+        "description": item.description,
+        "comments": getattr(item, "comments", ""),
+        "note": getattr(item, "comments", ""),
     }
 
 
@@ -128,6 +152,19 @@ class WorkspaceCalendarView(APIView):
             if not can_followup_all:
                 fu_qs = fu_qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid) | Q(created_by_id=uid)).distinct()
             events.extend(_followup_event(f) for f in fu_qs)
+
+            meeting_qs = Meeting.objects.filter(
+                is_deleted=False,
+            ).filter(
+                # Overlap: event starts before window ends AND ends after window starts
+                Q(start_date__lte=end, end_date__gte=start) |
+                Q(start_date__isnull=True, end_date__gte=start, end_date__lte=end) |
+                Q(end_date__isnull=True, start_date__gte=start, start_date__lte=end) |
+                Q(start_date__isnull=True, end_date__isnull=True)
+            ).prefetch_related("assignees").select_related("workflow_state")
+            if not can_followup_all:
+                meeting_qs = meeting_qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid) | Q(created_by_id=uid)).distinct()
+            events.extend(_meeting_event(m) for m in meeting_qs)
 
         events.sort(key=lambda e: (e.get("start_date") or e.get("end_date") or "", e.get("start_time") or ""))
 
