@@ -245,17 +245,5 @@ class FollowUpViewSet(BaseModelViewSet):
         return Response({"columns": columns, "count": visible_count})
 
 
-class MeetingViewSet(FollowUpViewSet):
-    def get_queryset(self):
-        qs = BaseModelViewSet.get_queryset(self)
-        if self._can_view_all():
-            return qs.filter(type="MEETING")
-        uid = self.request.user.pk
-        return qs.filter(type="MEETING").filter(
-            Q(assignees__id=uid) | Q(reporter_id=uid) | Q(created_by_id=uid)
-        ).distinct()
 
-    def perform_create(self, serializer):
-        serializer.validated_data["type"] = "MEETING"
-        super().perform_create(serializer)
 
