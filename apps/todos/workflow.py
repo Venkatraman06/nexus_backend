@@ -18,6 +18,8 @@ TODO_TRANSITIONS = [
     ("open",       "done",       "Mark Done"),
     ("inprogress", "done",       "Mark Done"),
     ("inprogress", "open",       "Back"),
+    ("done",       "open",       "Reopen"),
+    ("done",       "inprogress", "Reopen"),
     ("done",       "cancelled",  "Cancel"),
     ("cancelled",  "open",       "Reopen"),
 ]
