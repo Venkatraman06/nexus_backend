@@ -67,6 +67,10 @@ class FollowUpViewSet(BaseModelViewSet):
     def _scoped_queryset(self, qs=None):
         """Assignee or reporter (creator) only, unless view_all."""
         qs = qs if qs is not None else super().get_queryset()
+        
+        # Exclude old meetings from the follow-up module
+        qs = qs.exclude(type="MEETING")
+        
         if self._can_view_all():
             return qs
         uid = self.request.user.pk
