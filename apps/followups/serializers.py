@@ -66,11 +66,11 @@ class FollowUpListSerializer(serializers.ModelSerializer):
         if getattr(user, "is_superuser", False):
             return True
         user_perms = getattr(request, "user_permissions", [])
-        if "pmt.crm.followup.view_all" in user_perms:
+        if "pmt.crm.followup.view_all" in user_perms or "pmt.crm.followup.transition" in user_perms:
             return True
         uid = user.pk
         return (
-            obj.reporter_id == uid or obj.assignees.filter(id=uid).exists()
+            obj.reporter_id == uid or obj.created_by_id == uid or obj.assignees.filter(id=uid).exists()
         )
 
     def get_allowed_destination_slugs(self, obj):

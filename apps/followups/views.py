@@ -83,8 +83,11 @@ class FollowUpViewSet(BaseModelViewSet):
         if self._can_view_all():
             return True
         user = self.request.user
+        user_perms = getattr(self.request, "user_permissions", [])
+        if "pmt.crm.followup.transition" in user_perms:
+            return True
         uid = user.pk
-        return followup.assignees.filter(id=uid).exists() or followup.reporter_id == uid
+        return followup.assignees.filter(id=uid).exists() or followup.reporter_id == uid or followup.created_by_id == uid
 
     def list(self, request, *args, **kwargs):
         ensure_followup_workflow()
