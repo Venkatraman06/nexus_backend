@@ -49,7 +49,6 @@ def publish_meeting_due_today(meeting, *, today: date | None = None, actor_id: s
             str(meeting.id),
             payload={
                 "title": meeting.title,
-                "type_label": meeting.get_type_display(),
                 "priority_label": meeting.get_priority_display(),
                 "end_date": today.isoformat(),
                 "time_window": time_suffix.strip(" ()"),
@@ -82,7 +81,6 @@ def publish_meeting_overdue(meeting, *, today: date | None = None, actor_id: str
             str(meeting.id),
             payload={
                 "title": meeting.title,
-                "type_label": meeting.get_type_display(),
                 "priority_label": meeting.get_priority_display(),
                 "end_date": meeting.end_date.isoformat(),
                 "days_overdue": days_overdue,
