@@ -1,36 +1,22 @@
 from django.db import models
-
 from apps.common.models import BaseModel
 from packages.workflow.field import StateField
-
-
-class FollowUpType(models.TextChoices):
-    EMAIL      = "EMAIL",      "Email"
-    CALL       = "CALL",       "Call"
-    WHATSAPP   = "WHATSAPP",   "WhatsApp"
-    SITE_VISIT = "SITE_VISIT", "Site Visit"
-
 
 class MeetingMode(models.TextChoices):
     ONLINE  = "ONLINE",  "Online"
     OFFLINE = "OFFLINE", "Offline"
 
-
-class FollowUpPriority(models.TextChoices):
+class MeetingPriority(models.TextChoices):
     HIGH      = "HIGH",      "High"
     MEDIUM    = "MEDIUM",    "Medium"
     LOW       = "LOW",       "Low"
 
-
-class FollowUp(BaseModel):
+class Meeting(BaseModel):
     title = models.CharField(max_length=300)
-    type = models.CharField(
-        max_length=20, choices=FollowUpType.choices, default=FollowUpType.CALL
-    )
     priority = models.CharField(
         max_length=20,
-        choices=FollowUpPriority.choices,
-        default=FollowUpPriority.MEDIUM,
+        choices=MeetingPriority.choices,
+        default=MeetingPriority.MEDIUM,
     )
     description = models.TextField(blank=True, default="")
     content = models.TextField(blank=True, default="")
@@ -38,13 +24,13 @@ class FollowUp(BaseModel):
     assignees = models.ManyToManyField(
         "accounts.Employee",
         blank=True,
-        related_name="assigned_followups",
+        related_name="assigned_meetings",
     )
     reporter = models.ForeignKey(
         "accounts.Employee",
         on_delete=models.SET_NULL,
         null=True, blank=True,
-        related_name="reported_followups",
+        related_name="reported_meetings",
     )
     start_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)
@@ -55,10 +41,10 @@ class FollowUp(BaseModel):
         choices=MeetingMode.choices,
         null=True, blank=True,
     )
-    workflow_state = StateField(related_name="followups")
+    workflow_state = StateField(related_name="meetings")
 
     class Meta:
-        db_table = "crm_followup"
+        db_table = "crm_meeting"
         ordering = ["-created_at"]
 
     def __str__(self):
