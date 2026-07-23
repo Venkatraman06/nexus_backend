@@ -25,8 +25,14 @@ class FollowUpPriority(models.TextChoices):
 class FollowUp(BaseModel):
     title = models.CharField(max_length=300)
     type = models.CharField(
-        max_length=20, choices=FollowUpType.choices, default=FollowUpType.CALL
+        max_length=100, default="CALL"
     )
+
+    def get_type_display(self):
+        for choice_val, choice_lbl in FollowUpType.choices:
+            if choice_val == self.type:
+                return choice_lbl
+        return self.type.replace("_", " ").title() if self.type else ""
     priority = models.CharField(
         max_length=20,
         choices=FollowUpPriority.choices,

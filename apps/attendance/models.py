@@ -370,3 +370,90 @@ class ShiftChangeRequest(BaseModel):
 
     def __str__(self):
         return f"{self.employee} | {self.request_type} | {self.status}"
+
+
+class AttendanceReportStatus(models.TextChoices):
+    PENDING          = "PENDING",          "Pending – Submitted to CEO"
+    APPROVED_BY_CEO  = "APPROVED_BY_CEO",  "Approved by CEO"
+    REJECTED_BY_CEO  = "REJECTED_BY_CEO",  "Rejected by CEO"
+
+
+class AttendanceMonthlyReport(BaseModel):
+    """
+    Reporting Manager (PM) submits the monthly attendance report to the CEO.
+    CEO approves or rejects. On rejection, the PM sees the reason.
+    """
+    year              = models.PositiveIntegerField()
+    month             = models.PositiveIntegerField()
+    reporting_manager = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="submitted_attendance_reports",
+    )
+    reviewed_by       = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="reviewed_attendance_reports",
+    )
+    status            = models.CharField(
+        max_length=20, choices=AttendanceReportStatus.choices,
+        default=AttendanceReportStatus.PENDING,
+    )
+    ceo_remarks       = models.TextField(blank=True, default="")
+    summary_data      = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table        = "hrms_attendance_monthly_report"
+        unique_together = ("year", "month")
+        ordering        = ["-year", "-month"]
+
+    def __str__(self):
+        import calendar
+        return f"Attendance Report – {calendar.month_name[self.month]} {self.year} [{self.status}]"
+
+
+class RegularizationReason(models.TextChoices):
+    FORGOT_CHECKIN  = "FORGOT_CHECKIN",  "Forgot to Check-In"
+    FORGOT_CHECKOUT = "FORGOT_CHECKOUT", "Forgot to Check-Out"
+    SYSTEM_ERROR    = "SYSTEM_ERROR",    "System / Technical Error"
+    WFH_MISSED      = "WFH_MISSED",      "WFH Not Marked"
+    OTHER           = "OTHER",           "Other"
+
+
+class AttendanceRegularizationRequest(BaseModel):
+    """
+    Employee raises a regularization request when they forgot to
+    check-in or check-out. The PM can approve (auto-creates/updates
+    the AttendanceRecord) or reject the request.
+    """
+    employee          = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name="regularization_requests",
+    )
+    date              = models.DateField()
+    reason            = models.CharField(
+        max_length=30, choices=RegularizationReason.choices,
+        default=RegularizationReason.FORGOT_CHECKIN,
+    )
+    requested_status  = models.CharField(
+        max_length=20, choices=AttendanceStatus.choices,
+        default=AttendanceStatus.PRESENT,
+    )
+    check_in          = models.TimeField(null=True, blank=True)
+    check_out         = models.TimeField(null=True, blank=True)
+    remarks           = models.TextField(blank=True, default="")
+    status            = models.CharField(
+        max_length=20,
+        choices=[("PENDING", "Pending"), ("APPROVED", "Approved"), ("REJECTED", "Rejected")],
+        default="PENDING",
+    )
+    reviewed_by       = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="regularization_reviews",
+    )
+    reviewer_remarks  = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "hrms_attendance_regularization"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.employee} | {self.date} | {self.reason} | {self.status}"

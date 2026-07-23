@@ -59,9 +59,10 @@ class FollowUpViewSet(BaseModelViewSet):
         return ctx
 
     def _can_view_all(self) -> bool:
-        """Only users with explicit view_all permission see every follow-up."""
+        """Only when view_all=true query param is explicitly passed AND user has permission."""
+        view_all_param = self.request.query_params.get("view_all") == "true"
         user_perms = getattr(self.request, "user_permissions", [])
-        return self.VIEW_ALL_PERMISSION in user_perms
+        return view_all_param and (self.VIEW_ALL_PERMISSION in user_perms)
 
     def _scoped_queryset(self, qs=None):
         """Assignee or reporter (creator) only, unless view_all."""
@@ -69,7 +70,7 @@ class FollowUpViewSet(BaseModelViewSet):
         if self._can_view_all():
             return qs
         uid = self.request.user.pk
-        return qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid)).distinct()
+        return qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid) | Q(created_by_id=uid)).distinct()
 
     def get_queryset(self):
         return self._scoped_queryset()
@@ -154,6 +155,27 @@ class FollowUpViewSet(BaseModelViewSet):
                 payload={"title": followup.title},
                 actor_id=str(user.id),
                 recipient_ids=new_assignees,
+                async_delivery=True,
+            )
+
+        # Notify existing assignees + reporter about comments/updates
+        all_recipients = set(new_assignee_ids)
+        if followup.reporter_id:
+            all_recipients.add(str(followup.reporter_id))
+        all_recipients.discard(str(user.id))
+
+        if all_recipients:
+            from apps.notifications.publisher import publish_event
+            from apps.notifications.constants import EventType, ReferenceType
+            is_comment = "comments" in serializer.validated_data and serializer.validated_data["comments"] != instance.comments
+            event_type = EventType.FOLLOWUP_COMMENTED if is_comment else EventType.FOLLOWUP_UPDATED
+            publish_event(
+                event_type=event_type,
+                reference_type=ReferenceType.FOLLOWUP,
+                reference_id=str(followup.id),
+                payload={"title": followup.title, "actor_name": user.full_name},
+                actor_id=str(user.id),
+                recipient_ids=list(all_recipients),
                 async_delivery=True,
             )
             

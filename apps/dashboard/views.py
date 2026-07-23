@@ -466,12 +466,13 @@ class EmployeeDashboardView(APIView):
                 default=Value(4),
                 output_field=IntegerField(),
             )
-            visible = Q(assignees=me) | Q(reporter_id=me.pk)
+            visible = Q(assignees=me) | Q(reporter_id=me.pk) | Q(created_by_id=me.pk)
             pending_base = FollowUp.objects.filter(
                 is_deleted=False,
                 workflow_state__is_final=False,
             ).prefetch_related("assignees")
-            if "pmt.crm.followup.view_all" in user_perms:
+            view_all_param = request.query_params.get("view_all") == "true"
+            if view_all_param and ("pmt.crm.followup.view_all" in user_perms):
                 pending_qs = pending_base
             else:
                 pending_qs = pending_base.filter(visible).distinct()

@@ -93,25 +93,32 @@ class TokenView(APIView):
     authentication_classes = []
 
     def post(self, request):
-        username = (request.data.get("username") or "").strip()
+        username_input = (request.data.get("username") or "").strip()
         password = (request.data.get("password") or "").strip()
-        if not username or not password:
+        if not username_input or not password:
             return Response(
                 {"error": "username and password are required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        username = username_input
+        if "@" in username_input:
+            from apps.accounts.models import Employee
+            emp_by_email = Employee.objects.filter(email__iexact=username_input).first()
+            if emp_by_email and emp_by_email.username:
+                username = emp_by_email.username
 
         try:
             kc = _kc_openid()
             token_data = kc.token(username, password)
         except Exception as exc:
             err = str(exc).lower()
+            logger.warning("Keycloak login failed for '%s' (resolved '%s'): %s", username_input, username, exc)
             if "401" in err or "invalid_grant" in err or "unauthorized" in err:
                 return Response(
                     {"error": "Invalid username or password"},
                     status=status.HTTP_401_UNAUTHORIZED,
                 )
-            logger.error("Keycloak token error: %s", exc)
             return Response(
                 {"error": "Authentication service unavailable"},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -119,6 +126,25 @@ class TokenView(APIView):
 
         access_token = token_data.get("access_token")
         emp, _ = _fetch_employee(kc, access_token)
+
+        # Check 2FA (Google Authenticator) requirement
+        if emp and emp.totp_enabled and emp.totp_secret:
+            otp_code = (request.data.get("otp") or "").strip()
+            if not otp_code:
+                return Response(
+                    {
+                        "totp_required": True,
+                        "message": "Google Authenticator 2FA code required",
+                    },
+                    status=status.HTTP_200_OK,
+                )
+            import pyotp
+            totp = pyotp.TOTP(emp.totp_secret)
+            if not totp.verify(otp_code, valid_window=1):
+                return Response(
+                    {"error": "Invalid 6-digit Google Authenticator code."},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
 
         user_data = None
         if emp:
@@ -471,3 +497,82 @@ class OnboardSetPasswordView(APIView):
             return Response({"error": err}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({"message": "Password set successfully. You can now sign in."})
+
+
+# ──────────────────────────────────────────────────────────
+# 2FA (Google / Microsoft Authenticator TOTP) API Views
+# ──────────────────────────────────────────────────────────
+
+import base64
+import io
+import pyotp
+import qrcode
+from apps.common.permissions import IsAuthenticated
+
+class TOTPSetupView(APIView):
+    """Generate TOTP secret and QR code for Google Authenticator pairing."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        emp = request.user
+        secret = emp.totp_secret or pyotp.random_base32()
+        
+        # Save transient secret
+        emp.totp_secret = secret
+        emp.save(update_fields=["totp_secret"])
+
+        issuer = "PMT Workspace"
+        email = emp.email or emp.username
+        totp = pyotp.TOTP(secret)
+        provisioning_uri = totp.provisioning_uri(name=email, issuer_name=issuer)
+
+        # Generate QR code base64 image
+        img = qrcode.make(provisioning_uri)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        qr_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+        qr_code_data = f"data:image/png;base64,{qr_b64}"
+
+        return Response({
+            "secret": secret,
+            "qr_code": qr_code_data,
+            "totp_enabled": emp.totp_enabled,
+            "email": email,
+        })
+
+
+class TOTPVerifyEnableView(APIView):
+    """Verify 6-digit TOTP code and enable 2FA."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        emp = request.user
+        otp_code = (request.data.get("otp") or "").strip()
+        secret = (request.data.get("secret") or emp.totp_secret or "").strip()
+
+        if not secret:
+            return Response({"error": "No TOTP setup found. Please setup 2FA first."}, status=status.HTTP_400_BAD_REQUEST)
+        if not otp_code:
+            return Response({"error": "6-digit code is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        totp = pyotp.TOTP(secret)
+        if not totp.verify(otp_code, valid_window=1):
+            return Response({"error": "Invalid verification code. Please check Google Authenticator and try again."}, status=status.HTTP_400_BAD_REQUEST)
+
+        emp.totp_secret = secret
+        emp.totp_enabled = True
+        emp.save(update_fields=["totp_secret", "totp_enabled"])
+
+        return Response({"message": "Google Authenticator (2FA) enabled successfully!", "totp_enabled": True})
+
+
+class TOTPDisableView(APIView):
+    """Disable 2FA for current employee."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        emp = request.user
+        emp.totp_enabled = False
+        emp.totp_secret = None
+        emp.save(update_fields=["totp_enabled", "totp_secret"])
+        return Response({"message": "Google Authenticator (2FA) disabled successfully.", "totp_enabled": False})

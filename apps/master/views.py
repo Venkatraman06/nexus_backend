@@ -5,6 +5,7 @@ from apps.common.permissions import IsAuthenticated, HasKeycloakPermission
 from .models import (
     Designation, Department, Location, Grade, EmploymentType,
     ShiftCategory, RateCard, ClientCategory, BusinessType, BillingType,
+    FollowupTypeMaster,
 )
 from .serializers import (
     DesignationSerializer, DesignationDropdownSerializer,
@@ -17,6 +18,7 @@ from .serializers import (
     ClientCategorySerializer, ClientCategoryDropdownSerializer,
     BusinessTypeSerializer, BusinessTypeDropdownSerializer,
     BillingTypeSerializer, BillingTypeDropdownSerializer,
+    FollowupTypeMasterSerializer, FollowupTypeDropdownSerializer,
 )
 
 
@@ -191,6 +193,30 @@ class BillingTypeViewSet(ModelViewSet):
 class BillingTypeDropdownView(DropdownView):
     queryset = BillingType.objects.all()
     serializer_class = BillingTypeDropdownSerializer
+
+
+_FOLLOWUP_MASTER_PERMS = {
+    "list":           None,
+    "retrieve":       None,
+    "create":         None,
+    "update":         "pmt.master.project.update",
+    "partial_update": "pmt.master.project.update",
+    "destroy":        "pmt.master.project.delete",
+}
+
+
+class FollowupTypeViewSet(ModelViewSet):
+    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    PERMISSION_MAP = _FOLLOWUP_MASTER_PERMS
+    serializer_class = FollowupTypeMasterSerializer
+    queryset = FollowupTypeMaster.objects.all()
+    filterset_fields = ["is_active"]
+    search_fields = ["name"]
+
+
+class FollowupTypeDropdownView(DropdownView):
+    queryset = FollowupTypeMaster.objects.all()
+    serializer_class = FollowupTypeDropdownSerializer
 from .models import LeaveType
 from apps.attendance.models import LeaveBalance
 from apps.attendance.models import LeavePolicyRule

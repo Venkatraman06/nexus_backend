@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import (
     Designation, Department, Location, Grade, EmploymentType,
     ShiftCategory, RateCard, ClientCategory, BusinessType, BillingType,
+    FollowupTypeMaster,
 )
 
 
@@ -133,6 +134,18 @@ class BillingTypeSerializer(serializers.ModelSerializer):
 class BillingTypeDropdownSerializer(DropdownSerializer):
     class Meta(DropdownSerializer.Meta):
         model = BillingType
+
+
+class FollowupTypeMasterSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FollowupTypeMaster
+        fields = ["id", "name", "slug", "color", "is_active", "created_at", "updated_at"]
+        read_only_fields = ["id", "slug", "created_at", "updated_at"]
+
+
+class FollowupTypeDropdownSerializer(DropdownSerializer):
+    class Meta(DropdownSerializer.Meta):
+        model = FollowupTypeMaster
 
 
 class RateCardSerializer(serializers.ModelSerializer):

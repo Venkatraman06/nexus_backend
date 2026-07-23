@@ -55,13 +55,15 @@ class TodoViewSet(BaseModelViewSet):
         return TodoListSerializer
 
     def _can_view_all(self) -> bool:
+        """Only when view_all=true query param is explicitly passed AND user has permission."""
+        view_all_param = self.request.query_params.get("view_all") == "true"
         user_perms = getattr(self.request, "user_permissions", [])
-        return self.VIEW_ALL_PERMISSION in user_perms
+        return view_all_param and (self.VIEW_ALL_PERMISSION in user_perms)
 
     def _scoped_queryset(self, qs=None):
         qs = qs if qs is not None else super().get_queryset()
         uid = self.request.user.pk
-        return qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid)).distinct()
+        return qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid) | Q(created_by_id=uid)).distinct()
 
     def get_queryset(self):
         if self._can_view_all():

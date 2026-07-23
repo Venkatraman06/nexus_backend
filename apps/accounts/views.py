@@ -70,9 +70,8 @@ class EmployeeViewSet(BaseModelViewSet):
         "designation_ref", "department_ref", "location", "grade", "employment_type"
     )
     permission_classes = [IsAuthenticated, HasKeycloakPermission]
-    search_fields = ["first_name", "last_name", "email", "username", "employee_code"]
-    ordering_fields = ["first_name", "last_name", "created_at", "status", "employee_code"]
-    ordering = ["first_name"]
+    ordering_fields = ["employee_code", "first_name", "last_name", "created_at", "status"]
+    ordering = ["employee_code"]
     filterset_fields = ["status", "is_pmo", "is_manager", "shift_applicable", "keycloak_group"]
 
     PERMISSION_MAP = {
@@ -255,8 +254,8 @@ class EmployeeViewSet(BaseModelViewSet):
         # Exclude system/admin accounts that have no employee code
         qs = super().get_queryset().exclude(employee_code="")
         if self.request.query_params.get("dropdown"):
-            return qs.filter(is_active=True).exclude(status__in=[EmployeeStatus.INACTIVE, EmployeeStatus.RESIGNED])
-        return qs
+            return qs.filter(is_active=True).exclude(status__in=[EmployeeStatus.INACTIVE, EmployeeStatus.RESIGNED]).order_by("employee_code")
+        return qs.order_by("employee_code")
 
 
 class EmployeeSimpleDropdownView(APIView):
@@ -422,6 +421,7 @@ class MeView(APIView):
             "is_manager":       getattr(me, "is_manager", False),
             "is_staff":         is_staff,
             "is_superuser":     is_superuser,
+            "totp_enabled":     getattr(me, "totp_enabled", False),
             "permissions":      effective_perms,
             "phone_number":     getattr(me, "phone_number", "") or "",
             "bio":              getattr(me, "bio", "") or "",
