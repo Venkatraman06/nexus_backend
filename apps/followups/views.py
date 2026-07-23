@@ -235,3 +235,14 @@ class FollowUpViewSet(BaseModelViewSet):
             columns.setdefault(slug, []).append(item)
         visible_count = sum(len(v) for v in columns.values())
         return Response({"columns": columns, "count": visible_count})
+
+
+class MeetingViewSet(FollowUpViewSet):
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return qs.filter(type="MEETING")
+
+    def perform_create(self, serializer):
+        serializer.validated_data["type"] = "MEETING"
+        super().perform_create(serializer)
+

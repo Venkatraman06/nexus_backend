@@ -141,6 +141,65 @@ class FollowUpCreateSerializer(serializers.ModelSerializer):
                 if isinstance(e.detail, dict) and "due_date" in e.detail:
                     raise serializers.ValidationError({"end_date": e.detail["due_date"]})
                 raise e
+
+        # Conflict Validation: Check overlapping Meetings / Follow-ups for assignees
+        start_time_val = attrs.get("start_time") if "start_time" in attrs else (self.instance.start_time if self.instance else None)
+        end_time_val = attrs.get("end_time") if "end_time" in attrs else (self.instance.end_time if self.instance else None)
+
+        assignees_val = attrs.get("assignees")
+        if assignees_val is not None:
+            assignee_ids = [a.id if hasattr(a, "id") else a for a in assignees_val]
+        elif self.instance:
+            assignee_ids = list(self.instance.assignees.values_list("id", flat=True))
+        else:
+            request = self.context.get("request")
+            assignee_ids = [request.user.pk] if (request and request.user) else []
+
+        if assignee_ids and start_date and end_date:
+            from apps.followups.models import FollowUp
+            from django.db.models import Q
+
+            qs = FollowUp.objects.filter(is_deleted=False, assignees__id__in=assignee_ids)
+            if self.instance:
+                qs = qs.exclude(id=self.instance.id)
+
+            # Date overlap check: candidate_start <= existing_end AND candidate_end >= existing_start
+            qs = qs.filter(
+                Q(start_date__lte=end_date, end_date__gte=start_date) |
+                Q(start_date__isnull=True, end_date__gte=start_date, end_date__lte=end_date) |
+                Q(end_date__isnull=True, start_date__gte=start_date, start_date__lte=end_date) |
+                Q(start_date__isnull=True, end_date__isnull=True)
+            ).prefetch_related("assignees").distinct()
+
+            for item in qs:
+                item_start = item.start_time
+                item_end = item.end_time
+
+                has_conflict = False
+                if start_time_val and end_time_val and item_start and item_end:
+                    # Interval overlap: new_start < existing_end AND new_end > existing_start
+                    if start_time_val < item_end and end_time_val > item_start:
+                        has_conflict = True
+                else:
+                    # If either event has no specific time bounds on overlapping date, treat as conflict
+                    has_conflict = True
+
+                if has_conflict:
+                    time_info = ""
+                    if item_start and item_end:
+                        time_info = f" ({item_start.strftime('%I:%M %p')} - {item_end.strftime('%I:%M %p')})"
+                    elif item_start:
+                        time_info = f" ({item_start.strftime('%I:%M %p')})"
+                    
+                    item_kind = "Meeting" if item.type == "MEETING" else "Follow-up"
+                    
+                    err_msg = (
+                        f"This assignee already has another Meeting or Follow-up scheduled during the "
+                        f"selected date and time (Conflict with {item_kind} \"{item.title}\"{time_info}). "
+                        f"Please choose a different time or assign another user."
+                    )
+                    raise serializers.ValidationError(err_msg)
+
         return attrs
 
 
