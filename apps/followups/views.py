@@ -68,8 +68,9 @@ class FollowUpViewSet(BaseModelViewSet):
         """Assignee or reporter (creator) only, unless view_all."""
         qs = qs if qs is not None else super().get_queryset()
         
-        # Exclude old meetings from the follow-up module
-        qs = qs.exclude(type="MEETING")
+        # Exclude meetings from FollowUpViewSet query (MeetingViewSet overrides get_queryset)
+        if self.__class__.__name__ == "FollowUpViewSet":
+            qs = qs.exclude(type="MEETING")
         
         if self._can_view_all():
             return qs
@@ -246,8 +247,13 @@ class FollowUpViewSet(BaseModelViewSet):
 
 class MeetingViewSet(FollowUpViewSet):
     def get_queryset(self):
-        qs = super().get_queryset()
-        return qs.filter(type="MEETING")
+        qs = BaseModelViewSet.get_queryset(self)
+        if self._can_view_all():
+            return qs.filter(type="MEETING")
+        uid = self.request.user.pk
+        return qs.filter(type="MEETING").filter(
+            Q(assignees__id=uid) | Q(reporter_id=uid) | Q(created_by_id=uid)
+        ).distinct()
 
     def perform_create(self, serializer):
         serializer.validated_data["type"] = "MEETING"
