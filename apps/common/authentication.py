@@ -88,7 +88,23 @@ class KeycloakAuthentication(BaseAuthentication):
                 client_roles = []
 
             # Merge realm + client roles (deduped, existing behavior preserved)
-            request.user_permissions = list(set(realm_perms + client_roles))
+            perms = set(realm_perms + client_roles)
+            
+            # Map legacy follow-up permissions to new independent meeting permissions
+            if "pmt.crm.followup.view" in perms:
+                perms.add("pmt.crm.meeting.view")
+            if "pmt.crm.followup.create" in perms:
+                perms.add("pmt.crm.meeting.create")
+            if "pmt.crm.followup.update" in perms:
+                perms.add("pmt.crm.meeting.update")
+            if "pmt.crm.followup.delete" in perms:
+                perms.add("pmt.crm.meeting.delete")
+            if "pmt.crm.followup.transition" in perms:
+                perms.add("pmt.crm.meeting.transition")
+            if "pmt.crm.followup.view_all" in perms:
+                perms.add("pmt.crm.meeting.view_all")
+            
+            request.user_permissions = list(perms)
             request.keycloak_user_id = user_id
 
             return user, None
