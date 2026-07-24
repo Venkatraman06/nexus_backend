@@ -200,6 +200,20 @@ DEFAULT_TEMPLATES = [
         "default_action_url": "/workspace/todos",
     },
     {
+        "event_type": EventType.TODO_COMMENTED,
+        "title_template": "New Comment: {title}",
+        "message_template": "{actor_name} commented on to-do \"{title}\".",
+        "severity": NotificationSeverity.INFO,
+        "default_action_url": "/workspace/todos",
+    },
+    {
+        "event_type": EventType.TODO_UPDATED,
+        "title_template": "To-Do Updated: {title}",
+        "message_template": "{actor_name} updated to-do \"{title}\".",
+        "severity": NotificationSeverity.INFO,
+        "default_action_url": "/workspace/todos",
+    },
+    {
         "event_type": EventType.CHAT_MESSAGE_NEW,
         "title_template": "{sender_name}",
         "message_template": "{body_preview}",

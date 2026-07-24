@@ -115,8 +115,45 @@ class TodoViewSet(BaseModelViewSet):
     def perform_update(self, serializer):
         ensure_todo_workflow()
         user = self.request.user
+        instance = self.get_object()
+        old_assignee_ids = set(str(a.id) for a in instance.assignees.all())
+
         todo = serializer.save(updated_by=user)
         assign_initial_state(todo)
+        todo.refresh_from_db()
+
+        # Notify new assignees
+        new_assignee_ids = [str(a.id) for a in todo.assignees.all()]
+        new_assignees = [aid for aid in new_assignee_ids if aid not in old_assignee_ids and aid != str(user.id)]
+        if new_assignees:
+            publish_event(
+                event_type=EventType.TODO_ASSIGNED,
+                reference_type=ReferenceType.TODO,
+                reference_id=str(todo.id),
+                payload={"title": todo.title},
+                actor_id=str(user.id),
+                recipient_ids=new_assignees,
+                async_delivery=True,
+            )
+
+        # Notify existing assignees + reporter about comments/updates
+        all_recipients = set(new_assignee_ids)
+        if todo.reporter_id:
+            all_recipients.add(str(todo.reporter_id))
+        all_recipients.discard(str(user.id))
+
+        if all_recipients:
+            is_comment = "comments" in serializer.validated_data and serializer.validated_data["comments"] != instance.comments
+            event_type = EventType.TODO_COMMENTED if is_comment else EventType.TODO_UPDATED
+            publish_event(
+                event_type=event_type,
+                reference_type=ReferenceType.TODO,
+                reference_id=str(todo.id),
+                payload={"title": todo.title, "actor_name": user.full_name},
+                actor_id=str(user.id),
+                recipient_ids=list(all_recipients),
+                async_delivery=True,
+            )
 
     @action(detail=True, methods=["post"], url_path="transition")
     def transition(self, request, pk=None):

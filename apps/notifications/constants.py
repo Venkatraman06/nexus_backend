@@ -64,6 +64,8 @@ class EventType(models.TextChoices):
     SOCIAL_POST_PUBLISHED = "social_post.published", "Social Post Published"
     TODO_ASSIGNED = "todo.assigned", "To-Do Assigned"
     TODO_TRANSITIONED = "todo.transitioned", "To-Do Transitioned"
+    TODO_COMMENTED = "todo.commented", "To-Do Commented"
+    TODO_UPDATED = "todo.updated", "To-Do Updated"
     CHAT_MESSAGE_NEW = "chat.message.new", "New Chat Message"
 
 
