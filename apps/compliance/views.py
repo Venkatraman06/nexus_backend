@@ -214,9 +214,8 @@ class PolicyDocumentDetailView(APIView):
 # ── Policy Acknowledgment Endpoints ─────────────────────────────────────────────
 
 class PolicyAcknowledgeView(APIView):
-    """POST: employee acknowledges a policy document."""
-    permission_classes = [IsAuthenticated, HasKeycloakPermission]
-    required_permission = POLICY_VIEW
+    """POST: any authenticated employee acknowledges a policy document."""
+    permission_classes = [IsAuthenticated]
 
     @extend_schema(tags=["policy-documents"])
     def post(self, request, pk):
