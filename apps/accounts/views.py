@@ -75,8 +75,6 @@ class EmployeeViewSet(BaseModelViewSet):
     filterset_fields = ["status", "is_pmo", "is_manager", "shift_applicable", "keycloak_group"]
 
     PERMISSION_MAP = {
-        "list":           "pmt.hrms.employee.view",
-        "retrieve":       "pmt.hrms.employee.view",
         "create":         "pmt.hrms.employee.create",
         "update":         "pmt.hrms.employee.update",
         "partial_update": "pmt.hrms.employee.update",
