@@ -143,6 +143,13 @@ class TodoCreateSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class CommentsUpdateSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for comment-only PATCH requests."""
+    class Meta:
+        model = Todo
+        fields = ["comments"]
+
+
 class TodoTransitionSerializer(serializers.Serializer):
     destination_state = serializers.CharField(required=True)
     comments = serializers.CharField(required=False, default="", allow_blank=True)

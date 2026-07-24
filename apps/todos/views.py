@@ -16,6 +16,7 @@ from .filters import TodoFilter
 from .models import Todo
 from .workflow import assign_initial_state, ensure_todo_workflow, proceed_todo
 from .serializers import (
+    CommentsUpdateSerializer,
     TodoCreateSerializer,
     TodoDetailSerializer,
     TodoListSerializer,
@@ -39,7 +40,12 @@ class TodoViewSet(BaseModelViewSet):
     def get_serializer_class(self):
         if self.action == "retrieve":
             return TodoDetailSerializer
-        if self.action in ("create", "update", "partial_update"):
+        if self.action == "partial_update":
+            # Use lightweight serializer when only updating comments
+            if self.request and set(self.request.data.keys()) <= {"comments"}:
+                return CommentsUpdateSerializer
+            return TodoCreateSerializer
+        if self.action in ("create", "update"):
             return TodoCreateSerializer
         return TodoListSerializer
 
