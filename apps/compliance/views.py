@@ -140,19 +140,19 @@ class PolicyDocumentListCreateView(APIView):
         # Annotate each policy with acknowledgment info for the current user
         user = request.user
         ack_policy_ids = set(
-            PolicyDocumentAcknowledgment.objects.filter(employee=user)
+            str(pid) for pid in PolicyDocumentAcknowledgment.objects.filter(employee=user)
             .values_list("policy_id", flat=True)
         )
         ack_counts = {
-            a["policy_id"]: a["count"]
+            str(a["policy_id"]): a["count"]
             for a in PolicyDocumentAcknowledgment.objects.filter(
                 policy__in=qs
             ).values("policy_id").annotate(count=Count("id"))
         }
         data = PolicyDocumentSerializer(qs, many=True).data
         for item in data:
-            pid = item["id"]
-            item["is_acknowledged_by_me"] = str(pid) in {str(i) for i in ack_policy_ids}
+            pid = str(item["id"])
+            item["is_acknowledged_by_me"] = pid in ack_policy_ids
             item["acknowledgment_count"] = ack_counts.get(pid, 0)
         return Response(data)
 
