@@ -50,3 +50,5 @@ python-decouple==3.8
 loguru==0.7.3
 requests==2.32.3
 django-jazzmin==3.0.4
+pyotp
+qrcode
