@@ -278,6 +278,11 @@ class EmployeeSimpleDropdownView(APIView):
                 "email": e.email,
                 "full_name": e.full_name,
                 "employee_code": e.employee_code,
+                "profile_picture": (
+                    request.build_absolute_uri(e.profile_picture.url)
+                    if e.profile_picture and hasattr(e.profile_picture, "url")
+                    else (e.profile_picture if isinstance(e.profile_picture, str) else None)
+                ),
                 "designation_name": e.designation_ref.name if e.designation_ref else e.designation or None,
             }
             for e in qs
