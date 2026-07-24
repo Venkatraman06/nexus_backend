@@ -62,13 +62,30 @@ class PolicyDocumentSerializer(serializers.ModelSerializer):
 class PolicyAcknowledgmentSerializer(serializers.ModelSerializer):
     employee_name = serializers.SerializerMethodField()
     employee_code = serializers.SerializerMethodField()
+    profile_picture_url = serializers.SerializerMethodField()
 
     class Meta:
         model = PolicyDocumentAcknowledgment
-        fields = ["id", "employee", "employee_name", "employee_code", "acknowledged_at"]
+        fields = [
+            "id", "employee", "employee_name", "employee_code",
+            "profile_picture_url", "acknowledged_at",
+        ]
 
     def get_employee_name(self, obj):
         return getattr(obj.employee, "full_name", None) or str(obj.employee)
 
     def get_employee_code(self, obj):
         return getattr(obj.employee, "employee_code", None) or ""
+
+    def get_profile_picture_url(self, obj):
+        request = self.context.get("request")
+        emp = obj.employee
+        if emp and emp.profile_picture:
+            try:
+                url = emp.profile_picture.url
+                if request:
+                    return request.build_absolute_uri(url)
+                return url
+            except Exception:
+                return None
+        return None

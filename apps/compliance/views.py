@@ -252,4 +252,4 @@ class PolicyAcknowledgmentsListView(APIView):
         acks = PolicyDocumentAcknowledgment.objects.filter(
             policy=obj
         ).select_related("employee")
-        return Response(PolicyAcknowledgmentSerializer(acks, many=True).data)
+        return Response(PolicyAcknowledgmentSerializer(acks, many=True, context={"request": request}).data)
