@@ -1,4 +1,5 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from django.utils import timezone
 
 from django.db.models import Q
 from rest_framework.response import Response
@@ -19,12 +20,28 @@ FOLLOWUP_TYPE_COLORS = {
 
 MEETING_COLOR = "#1677ff"
 TODO_COLOR = "#039be5"
+COMPLETED_SLUGS = {"done", "completed"}
 
 
 def _serialize_time(t) -> str | None:
     if not t:
         return None
     return t.strftime("%H:%M:%S")
+
+
+def _should_include_in_calendar(item) -> bool:
+    """
+    Completed items (To-Do, Follow-Up, Meeting) remain on the calendar for 2 hours after completion,
+    and are filtered out once updated_at is older than 2 hours.
+    """
+    slug = item.workflow_state.slug.lower() if item.workflow_state and item.workflow_state.slug else ""
+    if slug in COMPLETED_SLUGS:
+        updated = getattr(item, "updated_at", None)
+        if updated:
+            cutoff = timezone.now() - timedelta(hours=2)
+            if updated < cutoff:
+                return False
+    return True
 
 
 def _followup_event(item: FollowUp) -> dict:
@@ -47,6 +64,7 @@ def _followup_event(item: FollowUp) -> dict:
         "description": item.description,
         "comments": item.comments,
         "note": item.comments,
+        "updated_at": item.updated_at.isoformat() if getattr(item, "updated_at", None) else None,
     }
 
 def _meeting_event(item: Meeting) -> dict:
@@ -70,6 +88,7 @@ def _meeting_event(item: Meeting) -> dict:
         "description": item.description,
         "comments": getattr(item, "comments", ""),
         "note": getattr(item, "comments", ""),
+        "updated_at": item.updated_at.isoformat() if getattr(item, "updated_at", None) else None,
     }
 
 
@@ -94,6 +113,7 @@ def _todo_event(item: Todo) -> dict:
         "description": item.description,
         "comments": "",
         "note": "",
+        "updated_at": item.updated_at.isoformat() if getattr(item, "updated_at", None) else None,
     }
 
 
@@ -137,7 +157,7 @@ class WorkspaceCalendarView(APIView):
             ).select_related("workflow_state").prefetch_related("assignees")
             if not can_todo_all:
                 todo_qs = todo_qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid) | Q(created_by_id=uid)).distinct()
-            events.extend(_todo_event(t) for t in todo_qs)
+            events.extend(_todo_event(t) for t in todo_qs if _should_include_in_calendar(t))
 
         if can_followup:
             fu_qs = FollowUp.objects.filter(
@@ -151,7 +171,7 @@ class WorkspaceCalendarView(APIView):
             ).prefetch_related("assignees").select_related("workflow_state")
             if not can_followup_all:
                 fu_qs = fu_qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid) | Q(created_by_id=uid)).distinct()
-            events.extend(_followup_event(f) for f in fu_qs)
+            events.extend(_followup_event(f) for f in fu_qs if _should_include_in_calendar(f))
 
             meeting_qs = Meeting.objects.filter(
                 is_deleted=False,
@@ -164,7 +184,7 @@ class WorkspaceCalendarView(APIView):
             ).prefetch_related("assignees").select_related("workflow_state")
             if not can_followup_all:
                 meeting_qs = meeting_qs.filter(Q(assignees__id=uid) | Q(reporter_id=uid) | Q(created_by_id=uid)).distinct()
-            events.extend(_meeting_event(m) for m in meeting_qs)
+            events.extend(_meeting_event(m) for m in meeting_qs if _should_include_in_calendar(m))
 
         events.sort(key=lambda e: (e.get("start_date") or e.get("end_date") or "", e.get("start_time") or ""))
 
