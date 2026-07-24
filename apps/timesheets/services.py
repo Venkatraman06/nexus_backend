@@ -904,6 +904,7 @@ def export_timesheet_csv(employee, week_start: date | None = None) -> str:
     ).select_related("ticket__project").order_by("log_date", "created_at")
  
     output = io.StringIO()
+    output.write('\ufeff')
     writer = csv.writer(output)
  
     writer.writerow([
@@ -939,6 +940,7 @@ def export_team_timesheet_csv(manager, week_start: date | None = None) -> str:
     rows = team_aggregate(manager, sunday)
  
     output = io.StringIO()
+    output.write('\ufeff')
     writer = csv.writer(output)
  
     writer.writerow([
