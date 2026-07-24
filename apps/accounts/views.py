@@ -47,6 +47,19 @@ def _assign_keycloak_group(admin, keycloak_user_id: str, group_name: str):
         logger.warning("_assign_keycloak_group failed (%s → %s): %s", keycloak_user_id, group_name, exc)
 
 
+def _remove_all_keycloak_groups(admin, keycloak_user_id: str):
+    """Remove a Keycloak user from ALL their current groups. Silently handles failures."""
+    try:
+        current_groups = admin.get_user_groups(keycloak_user_id)
+        for grp in current_groups:
+            try:
+                admin.group_user_remove(keycloak_user_id, grp["id"])
+            except Exception as exc:
+                logger.warning("_remove_all_keycloak_groups: failed to remove group %s for %s: %s", grp.get("name"), keycloak_user_id, exc)
+    except Exception as exc:
+        logger.warning("_remove_all_keycloak_groups: failed to fetch groups for %s: %s", keycloak_user_id, exc)
+
+
 class KeycloakGroupsView(APIView):
     """Return available Keycloak groups for the employee group dropdown."""
     permission_classes = [IsAuthenticated]
@@ -228,15 +241,19 @@ class EmployeeViewSet(BaseModelViewSet):
 
         response = super().partial_update(request, *args, **kwargs)
 
-        # Sync group membership in Keycloak (non-blocking)
+        # Sync group membership in Keycloak: remove old groups first, then add new one
         if group_name:
             instance = self.get_object()
             if instance.keycloak_id:
                 try:
                     from apps.accounts.auth_views import _kc_admin
-                    _assign_keycloak_group(_kc_admin(), instance.keycloak_id, group_name)
+                    admin = _kc_admin()
+                    # Remove from ALL current groups before assigning the new role
+                    _remove_all_keycloak_groups(admin, instance.keycloak_id)
+                    _assign_keycloak_group(admin, instance.keycloak_id, group_name)
                     from packages.keycloak.permissions import invalidate_permissions_cache
                     invalidate_permissions_cache(instance.keycloak_id)
+                    logger.info("Keycloak group updated for %s → %s", instance.username, group_name)
                 except Exception as exc:
                     logger.warning("Keycloak group update failed for %s: %s", instance.username, exc)
         return response
