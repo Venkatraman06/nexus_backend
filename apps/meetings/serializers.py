@@ -95,6 +95,11 @@ class MeetingDetailSerializer(MeetingListSerializer):
 
 class MeetingCreateSerializer(serializers.ModelSerializer):
     description = serializers.CharField(required=True, allow_blank=False, error_messages={"blank": "Description is required."})
+    meeting_mode = serializers.ChoiceField(
+        choices=["ONLINE", "OFFLINE"],
+        required=True,
+        error_messages={"required": "Meeting mode (ONLINE or OFFLINE) is required.", "invalid_choice": "Meeting mode must be ONLINE or OFFLINE."}
+    )
 
     class Meta:
         model = Meeting
