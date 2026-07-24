@@ -1,0 +1,43 @@
+{% extends "emails/base_email.html" %}
+
+{% block content %}
+<p style="margin:0 0 8px;color:#1a2332;font-size:16px;font-weight:600;">Welcome, {{ full_name }}!</p>
+<p style="margin:0 0 24px;color:#4a5568;font-size:14px;line-height:1.7;">
+  Your account has been created on the {{ company_name }} platform.
+  Use the credentials below to get started, then set your permanent password.
+</p>
+
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border-radius:8px;border:1px solid #e8edf2;margin-bottom:24px;">
+  <tr>
+    <td style="padding:16px 20px;">
+      <div style="color:#8896a8;font-size:11px;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">Your Username</div>
+      <div style="color:#1a2332;font-size:16px;font-weight:700;font-family:monospace;">{{ username }}</div>
+    </td>
+  </tr>
+</table>
+
+<p style="margin:0 0 20px;color:#4a5568;font-size:14px;line-height:1.7;">
+  Click the button below to set your password and activate your account.
+</p>
+
+<div style="text-align:center;margin:28px 0;">
+  <a href="{{ reset_link }}"
+     style="display:inline-block;background:#1677ff;color:#ffffff;text-decoration:none;
+            padding:14px 36px;border-radius:8px;font-size:15px;font-weight:700;
+            box-shadow:0 4px 14px rgba(22,119,255,0.35);">
+    Set Your Password &rarr;
+  </a>
+</div>
+
+<p style="margin:0 0 8px;color:#8896a8;font-size:12px;line-height:1.6;">
+  Or copy and paste this link into your browser:
+</p>
+<p style="margin:0 0 20px;color:#1677ff;font-size:12px;word-break:break-all;line-height:1.5;">
+  {{ reset_link }}
+</p>
+
+<p style="margin:0;color:#8896a8;font-size:12px;line-height:1.6;">
+  This link is valid for a limited time. If you did not expect this email,
+  please contact <a href="mailto:{{ support_email }}" style="color:#1677ff;">{{ support_email }}</a>.
+</p>
+{% endblock %}

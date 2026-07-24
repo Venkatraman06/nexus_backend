@@ -1,0 +1,53 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environment ───────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+
+# ── Django ────────────────────────────────────────────────────────────────────
+*.log
+local_settings.py
+db.sqlite3
+staticfiles/
+media/
+
+# ── Environment & secrets ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+secret.key
+environments/decrypted/
+
+# ── Logs & data ───────────────────────────────────────────────────────────────
+logs/
+# data/
+
+# ── OS / IDE ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Testing (local only — not committed) ────────────────────────────────────
+tests/
+**/tests/
+apps/common/test_*.py
+pytest.ini
+requirements-dev.txt
+.pytest_cache/
+.coverage
+htmlcov/
+core/settings/test.py

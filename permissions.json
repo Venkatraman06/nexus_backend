@@ -1,0 +1,134 @@
+[
+  {"name": "pmt.dashboard.own.view", "description": "View own employee dashboard", "category": "Dashboard"},
+  {"name": "pmt.dashboard.project.view", "description": "View project / PMO dashboard", "category": "Dashboard"},
+  {"name": "pmt.dashboard.hrms.view", "description": "View HRMS dashboard", "category": "Dashboard"},
+  {"name": "pmt.dashboard.executive.view", "description": "View executive / overall dashboard", "category": "Dashboard"},
+
+  {"name": "pmt.master.hrms.view", "description": "View HRMS master data", "category": "Master"},
+  {"name": "pmt.master.hrms.create", "description": "Create HRMS master records", "category": "Master"},
+  {"name": "pmt.master.hrms.update", "description": "Update HRMS master records", "category": "Master"},
+  {"name": "pmt.master.hrms.delete", "description": "Delete HRMS master records", "category": "Master"},
+
+  {"name": "pmt.master.client.view", "description": "View client master data", "category": "Master"},
+  {"name": "pmt.master.client.create", "description": "Create client master records", "category": "Master"},
+  {"name": "pmt.master.client.update", "description": "Update client master records", "category": "Master"},
+  {"name": "pmt.master.client.delete", "description": "Delete client master records", "category": "Master"},
+
+  {"name": "pmt.master.project.view", "description": "View project master data", "category": "Master"},
+  {"name": "pmt.master.project.create", "description": "Create project master records", "category": "Master"},
+  {"name": "pmt.master.project.update", "description": "Update project master records", "category": "Master"},
+  {"name": "pmt.master.project.delete", "description": "Delete project master records", "category": "Master"},
+
+  {"name": "pmt.master.workflow.view", "description": "View workflow configuration", "category": "Master"},
+  {"name": "pmt.master.workflow.manage", "description": "Manage workflow states and transitions", "category": "Master"},
+
+  {"name": "pmt.role.view", "description": "View roles and permission catalog", "category": "Role"},
+  {"name": "pmt.role.permission.assign", "description": "Assign permissions to roles", "category": "Role"},
+
+  {"name": "pmt.hrms.employee.view", "description": "View employees", "category": "HRMS"},
+  {"name": "pmt.hrms.employee.create", "description": "Create employees", "category": "HRMS"},
+  {"name": "pmt.hrms.employee.update", "description": "Update employees", "category": "HRMS"},
+  {"name": "pmt.hrms.employee.delete", "description": "Delete employees", "category": "HRMS"},
+  {"name": "pmt.hrms.employee.sync", "description": "Sync employees from Keycloak", "category": "HRMS"},
+
+  {"name": "pmt.hrms.attendance.view", "description": "View attendance tracker", "category": "HRMS"},
+  {"name": "pmt.hrms.attendance.manage", "description": "Manage attendance settings, shifts, and HR requests", "category": "HRMS"},
+  {"name": "pmt.hrms.leave.view", "description": "View leave requests", "category": "HRMS"},
+  {"name": "pmt.hrms.leave.approve", "description": "Approve or reject leave requests", "category": "HRMS"},
+  {"name": "pmt.hrms.leave.manage", "description": "Manage leave types and balances", "category": "HRMS"},
+
+  {"name": "pmt.hrms.payroll.view", "description": "View payroll", "category": "HRMS"},
+  {"name": "pmt.hrms.payroll.create", "description": "Create payroll records", "category": "HRMS"},
+  {"name": "pmt.hrms.payroll.update", "description": "Update payroll records", "category": "HRMS"},
+  {"name": "pmt.hrms.payroll.delete", "description": "Delete payroll records", "category": "HRMS"},
+  {"name": "pmt.hrms.payroll.approve", "description": "Approve or finalize payroll", "category": "HRMS"},
+
+  {"name": "pmt.hrms.compliance.view", "description": "View HR compliance documents", "category": "HRMS"},
+  {"name": "pmt.hrms.compliance.create", "description": "Upload HR compliance documents", "category": "HRMS"},
+  {"name": "pmt.hrms.compliance.update", "description": "Update HR compliance documents", "category": "HRMS"},
+  {"name": "pmt.hrms.compliance.delete", "description": "Delete HR compliance documents", "category": "HRMS"},
+
+  {"name": "pmt.chat.view", "description": "Use the team chat module", "category": "Chat"},
+
+  {"name": "pmt.policy.view", "description": "View policy documents", "category": "Policy Document"},
+  {"name": "pmt.policy.create", "description": "Create policy documents", "category": "Policy Document"},
+  {"name": "pmt.policy.update", "description": "Update policy documents", "category": "Policy Document"},
+  {"name": "pmt.policy.delete", "description": "Delete policy documents", "category": "Policy Document"},
+
+  {"name": "pmt.project.view", "description": "View projects (own only for non-admin)", "category": "Project MS"},
+  {"name": "pmt.project.view_all", "description": "View all projects (admin)", "category": "Project MS"},
+  {"name": "pmt.project.create", "description": "Create projects", "category": "Project MS"},
+  {"name": "pmt.project.update", "description": "Update projects and workflow", "category": "Project MS"},
+  {"name": "pmt.project.delete", "description": "Delete projects", "category": "Project MS"},
+
+  {"name": "pmt.project.client.view", "description": "View clients (project module)", "category": "Project MS"},
+  {"name": "pmt.project.client.create", "description": "Create clients", "category": "Project MS"},
+  {"name": "pmt.project.client.update", "description": "Update clients", "category": "Project MS"},
+  {"name": "pmt.project.client.delete", "description": "Delete clients", "category": "Project MS"},
+
+  {"name": "pmt.project.allocation.view", "description": "View resource allocation", "category": "Project MS"},
+  {"name": "pmt.project.allocation.create", "description": "Create allocations", "category": "Project MS"},
+  {"name": "pmt.project.allocation.update", "description": "Update allocations", "category": "Project MS"},
+  {"name": "pmt.project.allocation.delete", "description": "Delete allocations", "category": "Project MS"},
+
+  {"name": "pmt.project.workitem.view", "description": "View work items", "category": "Project MS"},
+  {"name": "pmt.project.workitem.create", "description": "Create work items", "category": "Project MS"},
+  {"name": "pmt.project.workitem.update", "description": "Update work items", "category": "Project MS"},
+  {"name": "pmt.project.workitem.delete", "description": "Delete work items", "category": "Project MS"},
+  {"name": "pmt.project.workitem.transition", "description": "Transition work item workflow", "category": "Project MS"},
+
+  {"name": "pmt.project.timesheet.view", "description": "View timesheets", "category": "Project MS"},
+  {"name": "pmt.project.timesheet.create", "description": "Create timesheet entries", "category": "Project MS"},
+  {"name": "pmt.project.timesheet.update", "description": "Update timesheet entries", "category": "Project MS"},
+  {"name": "pmt.project.timesheet.delete", "description": "Delete timesheet entries", "category": "Project MS"},
+  {"name": "pmt.project.timesheet.submit", "description": "Submit weekly timesheets", "category": "Project MS"},
+  {"name": "pmt.project.timesheet.approve", "description": "Review and approve employee timesheets", "category": "Project MS"},
+
+  {"name": "pmt.project.report.utilization", "description": "View utilization report", "category": "Project MS"},
+  {"name": "pmt.project.report.portfolio", "description": "View portfolio report", "category": "Project MS"},
+  {"name": "pmt.project.report.allocation", "description": "View allocation report", "category": "Project MS"},
+
+  {"name": "pmt.permission.sync", "description": "Sync user permissions from Keycloak", "category": "Role"},
+  {"name": "pmt.permission.create", "description": "Push permissions catalog to Keycloak", "category": "Role"},
+
+  {"name": "pmt.finance.document.view",   "description": "View finance documents (quotations, invoices, POs)", "category": "CRM & Finance"},
+  {"name": "pmt.finance.document.create", "description": "Create finance documents",                           "category": "CRM & Finance"},
+  {"name": "pmt.finance.document.update", "description": "Update finance documents",                           "category": "CRM & Finance"},
+  {"name": "pmt.finance.document.delete", "description": "Delete finance documents",                           "category": "CRM & Finance"},
+
+  {"name": "pmt.payment.dashboard.view",  "description": "View AR / receivables dashboard",                   "category": "Payment & AR"},
+  {"name": "pmt.payment.contract.view",   "description": "View contracts",                                    "category": "Payment & AR"},
+  {"name": "pmt.payment.contract.create", "description": "Create contracts",                                  "category": "Payment & AR"},
+  {"name": "pmt.payment.contract.update", "description": "Update contracts",                                  "category": "Payment & AR"},
+  {"name": "pmt.payment.contract.delete", "description": "Delete contracts",                                  "category": "Payment & AR"},
+  {"name": "pmt.payment.invoice.view",    "description": "View invoices and milestones",                      "category": "Payment & AR"},
+  {"name": "pmt.payment.invoice.create",  "description": "Create invoices",                                   "category": "Payment & AR"},
+  {"name": "pmt.payment.invoice.update",  "description": "Update invoices",                                   "category": "Payment & AR"},
+  {"name": "pmt.payment.invoice.delete",  "description": "Delete / cancel invoices",                          "category": "Payment & AR"},
+  {"name": "pmt.payment.payment.view",    "description": "View payment collections",                          "category": "Payment & AR"},
+  {"name": "pmt.payment.payment.create",  "description": "Record payments and allocations",                   "category": "Payment & AR"},
+  {"name": "pmt.payment.payment.update",  "description": "Update payment records",                            "category": "Payment & AR"},
+  {"name": "pmt.payment.payment.delete",  "description": "Delete payment records",                            "category": "Payment & AR"},
+
+  {"name": "pmt.crm.expense.view",    "description": "View company expenses",           "category": "CRM & Finance"},
+  {"name": "pmt.crm.expense.create",  "description": "Create company expense records",  "category": "CRM & Finance"},
+  {"name": "pmt.crm.expense.update",  "description": "Update company expense records",  "category": "CRM & Finance"},
+  {"name": "pmt.crm.expense.delete",  "description": "Delete company expense records",  "category": "CRM & Finance"},
+  {"name": "pmt.crm.expense.approve", "description": "Approve or reject expenses",      "category": "CRM & Finance"},
+
+  {"name": "pmt.crm.followup.view",       "description": "View follow-ups where you are assignee or creator", "category": "CRM & Finance"},
+  {"name": "pmt.crm.followup.view_all",   "description": "View all follow-ups",                    "category": "CRM & Finance"},
+  {"name": "pmt.crm.followup.create",     "description": "Create follow-up records",               "category": "CRM & Finance"},
+  {"name": "pmt.crm.followup.update",     "description": "Update follow-up records",               "category": "CRM & Finance"},
+  {"name": "pmt.crm.followup.delete",     "description": "Delete follow-up records",               "category": "CRM & Finance"},
+  {"name": "pmt.crm.followup.transition", "description": "Transition follow-up workflow states",   "category": "CRM & Finance"},
+
+  {"name": "pmt.workspace.calendar.view",   "description": "View workspace calendar",                "category": "Workspace"},
+
+  {"name": "pmt.social_feed.view",       "description": "View social feed posts",               "category": "Social Feed"},
+  {"name": "pmt.social_feed.create",     "description": "Create social feed posts",              "category": "Social Feed"},
+  {"name": "pmt.social_feed.update",     "description": "Update social feed posts",              "category": "Social Feed"},
+  {"name": "pmt.social_feed.delete",     "description": "Delete social feed posts",              "category": "Social Feed"},
+  {"name": "pmt.social_feed.transition", "description": "Transition social post workflow states", "category": "Social Feed"},
+  {"name": "pmt.social_feed.manage",     "description": "Manage/approve social feed posts",       "category": "Social Feed"}
+]
