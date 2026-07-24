@@ -97,6 +97,49 @@ class TodoCreateSerializer(serializers.ModelSerializer):
                 previous_due_date=self.instance.due_date if self.instance else None,
                 is_create=self.instance is None,
             )
+
+        assignees = attrs.get("assignees", [])
+        if not assignees and self.instance:
+            assignees = list(self.instance.assignees.all())
+
+        start_date = attrs.get("start_date") or attrs.get("due_date")
+        if not start_date and self.instance:
+            start_date = self.instance.start_date or self.instance.due_date
+
+        if assignees and start_date:
+            from .models import Todo
+            from django.db.models import Q
+
+            assignee_ids = [a.id if hasattr(a, 'id') else a for a in assignees]
+
+            existing_qs = Todo.objects.filter(
+                assignees__id__in=assignee_ids,
+                is_deleted=False,
+            ).filter(
+                Q(start_date=start_date) | Q(due_date=start_date)
+            ).exclude(
+                workflow_state__slug__in=["completed", "cancelled"]
+            ).distinct()
+
+            if self.instance and self.instance.pk:
+                existing_qs = existing_qs.exclude(pk=self.instance.pk)
+
+            for existing in existing_qs:
+                time_conflict = False
+                if start and end and existing.start_time and existing.end_time:
+                    if start < existing.end_time and end > existing.start_time:
+                        time_conflict = True
+                else:
+                    time_conflict = True
+
+                if time_conflict:
+                    conflicting = existing.assignees.filter(id__in=assignee_ids)
+                    names = ", ".join([a.full_name for a in conflicting]) or "An assignee"
+                    task_title = existing.title or "a task"
+                    raise serializers.ValidationError({
+                        "assignees": f"Assignee {names} is already assigned to task '{task_title}' at this time on this day."
+                    })
+
         return attrs
 
 
