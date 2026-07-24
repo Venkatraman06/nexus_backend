@@ -119,8 +119,7 @@ def _todo_event(item: Todo) -> dict:
 
 class WorkspaceCalendarView(APIView):
     """Unified calendar feed: todos + follow-ups for a date range."""
-    permission_classes = [IsAuthenticated, HasKeycloakPermission]
-    required_permission = "pmt.crm.followup.view"
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         date_from = request.query_params.get("date_from")
@@ -141,8 +140,8 @@ class WorkspaceCalendarView(APIView):
         perms = getattr(request, "user_permissions", [])
         view_all_param = request.query_params.get("view_all") == "true"
         can_followup_all = view_all_param and ("pmt.crm.followup.view_all" in perms)
-        can_followup = "pmt.crm.followup.view" in perms or ("pmt.crm.followup.view_all" in perms)
-        can_todo = can_followup
+        can_followup = True
+        can_todo = True
         can_todo_all = can_followup_all
 
         events: list[dict] = []

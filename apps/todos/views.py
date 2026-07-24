@@ -27,23 +27,12 @@ class TodoViewSet(BaseModelViewSet):
     queryset = Todo.objects.select_related(
         "reporter", "workflow_state",
     ).prefetch_related("assignees").filter(is_deleted=False)
-    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    permission_classes = [IsAuthenticated]
     pagination_class = DefaultListPagination
     filterset_class = TodoFilter
     search_fields = ["title", "description"]
     ordering_fields = ["created_at", "due_date", "title"]
     ordering = ["-created_at"]
-
-    PERMISSION_MAP = {
-        "list":           "pmt.crm.followup.view",
-        "retrieve":       "pmt.crm.followup.view",
-        "create":         "pmt.crm.followup.create",
-        "update":         "pmt.crm.followup.update",
-        "partial_update": "pmt.crm.followup.update",
-        "destroy":        "pmt.crm.followup.delete",
-        "transition":     "pmt.crm.followup.transition",
-        "board":          "pmt.crm.followup.view",
-    }
 
     VIEW_ALL_PERMISSION = "pmt.crm.followup.view_all"
 

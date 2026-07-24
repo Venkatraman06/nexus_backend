@@ -26,23 +26,12 @@ class MeetingViewSet(BaseModelViewSet):
     ).select_related(
         "reporter", "workflow_state",
     ).filter(is_deleted=False)
-    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    permission_classes = [IsAuthenticated]
     pagination_class = DefaultListPagination
     filterset_class = MeetingFilter
     search_fields = ["title", "description", "comments"]
     ordering_fields = ["created_at", "start_date", "end_date", "title"]
     ordering = ["-created_at"]
-
-    PERMISSION_MAP = {
-        "list":           "pmt.crm.meeting.view",
-        "retrieve":       "pmt.crm.meeting.view",
-        "create":         "pmt.crm.meeting.create",
-        "update":         "pmt.crm.meeting.update",
-        "partial_update": "pmt.crm.meeting.update",
-        "destroy":        "pmt.crm.meeting.delete",
-        "transition":     "pmt.crm.meeting.transition",
-        "board":          "pmt.crm.meeting.view",
-    }
 
     VIEW_ALL_PERMISSION = "pmt.crm.meeting.view_all"
 
