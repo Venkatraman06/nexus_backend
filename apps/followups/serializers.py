@@ -101,6 +101,13 @@ class FollowUpDetailSerializer(FollowUpListSerializer):
             return []
 
 
+class CommentsUpdateSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for comment-only PATCH requests."""
+    class Meta:
+        model = FollowUp
+        fields = ["comments"]
+
+
 class FollowUpCreateSerializer(serializers.ModelSerializer):
     description = serializers.CharField(required=True, allow_blank=False, error_messages={"blank": "Description is required."})
     start_date = serializers.DateField(required=True, allow_null=False, error_messages={"null": "Start date is required.", "required": "Start date is required."})

@@ -13,6 +13,7 @@ from .filters import FollowUpFilter
 from .models import FollowUp
 from .workflow import assign_initial_state, ensure_followup_workflow, proceed_followup
 from .serializers import (
+    CommentsUpdateSerializer,
     FollowUpCreateSerializer,
     FollowUpDetailSerializer,
     FollowUpListSerializer,
@@ -38,7 +39,12 @@ class FollowUpViewSet(BaseModelViewSet):
     def get_serializer_class(self):
         if self.action == "retrieve":
             return FollowUpDetailSerializer
-        if self.action in ("create", "update", "partial_update"):
+        if self.action == "partial_update":
+            # Use lightweight serializer when only updating comments
+            if self.request and set(self.request.data.keys()) <= {"comments"}:
+                return CommentsUpdateSerializer
+            return FollowUpCreateSerializer
+        if self.action in ("create", "update"):
             return FollowUpCreateSerializer
         return FollowUpListSerializer
 

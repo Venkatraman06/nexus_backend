@@ -93,6 +93,13 @@ class MeetingDetailSerializer(MeetingListSerializer):
             return []
 
 
+class CommentsUpdateSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for comment-only PATCH requests."""
+    class Meta:
+        model = Meeting
+        fields = ["comments"]
+
+
 class MeetingCreateSerializer(serializers.ModelSerializer):
     description = serializers.CharField(required=True, allow_blank=False, error_messages={"blank": "Description is required."})
     meeting_mode = serializers.ChoiceField(

@@ -13,6 +13,7 @@ from .filters import MeetingFilter
 from .models import Meeting
 from .workflow import assign_initial_state, ensure_meeting_workflow, proceed_meeting
 from .serializers import (
+    CommentsUpdateSerializer,
     MeetingCreateSerializer,
     MeetingDetailSerializer,
     MeetingListSerializer,
@@ -38,7 +39,12 @@ class MeetingViewSet(BaseModelViewSet):
     def get_serializer_class(self):
         if self.action == "retrieve":
             return MeetingDetailSerializer
-        if self.action in ("create", "update", "partial_update"):
+        if self.action == "partial_update":
+            # Use lightweight serializer when only updating comments
+            if self.request and set(self.request.data.keys()) <= {"comments"}:
+                return CommentsUpdateSerializer
+            return MeetingCreateSerializer
+        if self.action in ("create", "update"):
             return MeetingCreateSerializer
         return MeetingListSerializer
 
