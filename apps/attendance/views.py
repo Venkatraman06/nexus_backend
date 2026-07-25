@@ -1173,7 +1173,7 @@ class LeaveTeamRequestsView(APIView):
         for lr in qs:
             lvl = reporting_map[str(lr.employee_id)]
             is_hr = request.user.keycloak_group and request.user.keycloak_group.lower() == "hr"
-            can_approve = is_hr and (lr.status == "PENDING") and (lr.employee != request.user) and lr.is_acknowledged
+            can_approve = is_hr and (lr.status == "PENDING") and (lr.employee != request.user)
             can_ack = (lvl == "direct") and not lr.is_acknowledged and (lr.status == "PENDING")
             results.append({
                 "id": str(lr.id),
@@ -1246,7 +1246,7 @@ class AdminLeaveRequestListView(APIView):
                 "reviewer_remarks": lr.reviewer_remarks,
                 "created_at":       str(lr.created_at.date()),
                 "acknowledged_by":  lr.employee.manager.full_name if lr.is_acknowledged and lr.employee.manager else None,
-                "can_approve":      (lr.status == LeaveRequestStatus.PENDING) and (lr.employee != request.user) and (request.user.keycloak_group and request.user.keycloak_group.lower() == "hr") and lr.is_acknowledged,
+                "can_approve":      (lr.status == LeaveRequestStatus.PENDING) and (lr.employee != request.user) and (request.user.keycloak_group and request.user.keycloak_group.lower() == "hr"),
                 "can_ack":          (lr.status == LeaveRequestStatus.PENDING) and not lr.is_acknowledged and (lr.employee.manager == request.user),
             }
             for lr in qs
