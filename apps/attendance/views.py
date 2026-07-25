@@ -652,9 +652,10 @@ class AttendanceExportView(APIView):
             rec_map[(str(rec.employee_id), rec.date)] = rec
 
         output = io.StringIO()
+        output.write('\ufeff')  # UTF-8 BOM for Excel/LibreOffice
         writer = csv.writer(output)
 
-        writer.writerow([f"Attendance Report — {month_name} {year}"])
+        writer.writerow([f"Attendance Report — {month_name} {year}", ""])
         writer.writerow([])
 
         fixed_headers   = ["Emp Code", "Full Name", "Designation", "Department"]
