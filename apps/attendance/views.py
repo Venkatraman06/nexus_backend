@@ -1041,7 +1041,7 @@ class LeaveReviewView(APIView):
             return Response({"detail": "You cannot approve your own leave request."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Only HR can approve (or CEO for their own leave)
-        is_hr = request.user.keycloak_group and request.user.keycloak_group.lower() == "hr"
+        is_hr = request.user.keycloak_group and request.user.keycloak_group.lower() in ["hr", "admin", "hrms"]
         is_authorized = is_hr
         
         if is_ceo and leave.employee == request.user:
@@ -1172,7 +1172,7 @@ class LeaveTeamRequestsView(APIView):
         results = []
         for lr in qs:
             lvl = reporting_map[str(lr.employee_id)]
-            is_hr = request.user.keycloak_group and request.user.keycloak_group.lower() == "hr"
+            is_hr = request.user.keycloak_group and request.user.keycloak_group.lower() in ["hr", "admin", "hrms"]
             can_approve = is_hr and (lr.status == "PENDING") and (lr.employee != request.user)
             can_ack = (lvl == "direct") and not lr.is_acknowledged and (lr.status == "PENDING")
             results.append({
@@ -1246,7 +1246,7 @@ class AdminLeaveRequestListView(APIView):
                 "reviewer_remarks": lr.reviewer_remarks,
                 "created_at":       str(lr.created_at.date()),
                 "acknowledged_by":  lr.employee.manager.full_name if lr.is_acknowledged and lr.employee.manager else None,
-                "can_approve":      (lr.status == LeaveRequestStatus.PENDING) and (lr.employee != request.user) and (request.user.keycloak_group and request.user.keycloak_group.lower() == "hr"),
+                "can_approve":      (lr.status == LeaveRequestStatus.PENDING) and (lr.employee != request.user) and (request.user.keycloak_group and request.user.keycloak_group.lower() in ["hr", "admin", "hrms"]),
                 "can_ack":          (lr.status == LeaveRequestStatus.PENDING) and not lr.is_acknowledged and (lr.employee.manager == request.user),
             }
             for lr in qs
