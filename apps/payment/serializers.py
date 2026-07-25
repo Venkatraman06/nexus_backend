@@ -170,7 +170,7 @@ class InvoiceListSerializer(serializers.ModelSerializer):
             "invoice_amount", "tax_percentage", "tax_amount", "total_amount",
             "received_amount", "pending_amount",
             "status", "days_overdue", "is_cancelled",
-            "created_at",
+            "notes", "created_at",
         ]
 
 
@@ -257,7 +257,7 @@ class PaymentListSerializer(serializers.ModelSerializer):
             "client", "client_name",
             "project", "project_name", "project_code",
             "payment_amount", "payment_mode", "payment_mode_label",
-            "bank_reference",
+            "bank_reference", "remarks",
             "allocated_amount", "unallocated_amount",
             "created_at",
         ]
