@@ -17,7 +17,7 @@ class ClientSerializer(serializers.ModelSerializer):
         model = Client
         fields = [
             "id", "name", "code", "industry",
-            "contact_email", "contact_person", "phone", "address",
+            "contact_email", "contact_person", "contact_designation", "phone", "address",
             "pan_number", "gst_number",
             "category", "category_name",
             "latitude", "longitude", "formatted_address",
