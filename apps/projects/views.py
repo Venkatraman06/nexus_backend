@@ -451,21 +451,25 @@ class ProjectCommentViewSet(BaseModelViewSet):
         return is_ceo or is_admin or is_pm
 
     def perform_create(self, serializer):
-        from rest_framework.exceptions import PermissionDenied
-        if not self._is_privileged(self.request.user):
-            raise PermissionDenied("Only CEO, Admin, and Project Managers can create project comments.")
+        is_priv = self._is_privileged(self.request.user)
+        if not is_priv and serializer.validated_data.get("is_pinned"):
+            serializer.validated_data["is_pinned"] = False
         serializer.save(created_by=self.request.user, updated_by=self.request.user)
 
     def perform_update(self, serializer):
         from rest_framework.exceptions import PermissionDenied
-        if not self._is_privileged(self.request.user):
-            raise PermissionDenied("Only CEO, Admin, and Project Managers can update project comments.")
+        if not self._is_privileged(self.request.user) and serializer.instance.created_by != self.request.user:
+            raise PermissionDenied("You can only update your own comments.")
+        is_priv = self._is_privileged(self.request.user)
+        if not is_priv and serializer.validated_data.get("is_pinned"):
+            serializer.validated_data["is_pinned"] = False
         serializer.save(updated_by=self.request.user)
 
     def destroy(self, request, *args, **kwargs):
         from rest_framework.exceptions import PermissionDenied
-        if not self._is_privileged(request.user):
-            raise PermissionDenied("Only CEO, Admin, and Project Managers can delete project comments.")
+        instance = self.get_object()
+        if not self._is_privileged(request.user) and instance.created_by != request.user:
+            raise PermissionDenied("You can only delete your own comments.")
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"], url_path="acknowledge")
