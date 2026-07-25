@@ -860,6 +860,8 @@ class MyLeaveRequestListView(APIView):
 
         # Get project managers for the employee
         from .leave_utils import get_project_managers_for_employee
+        from apps.notifications.constants import EventType, ReferenceType
+        from apps.notifications.publisher import publish_event
         project_managers = get_project_managers_for_employee(request.user)
         
         # Send notifications to project managers
