@@ -1175,7 +1175,7 @@ class LeaveTeamRequestsView(APIView):
             lvl = reporting_map[str(lr.employee_id)]
             user_perms = getattr(request, "user_permissions", [])
             is_hr = "pmt.hrms.leave.approve" in user_perms or request.user.is_superuser
-            can_approve = is_hr and (lr.status == "PENDING") and (lr.employee != request.user)
+            can_approve = is_hr and (lr.status == "PENDING") and (lr.employee != request.user) and (lvl != "direct")
             can_ack = (lvl == "direct") and not lr.is_acknowledged and (lr.status == "PENDING")
             results.append({
                 "id": str(lr.id),
