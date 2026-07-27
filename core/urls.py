@@ -27,6 +27,7 @@ urlpatterns = [
     path(f"{URL_PREFIX}/api/v1/", include("apps.finance.urls")),
     path(f"{URL_PREFIX}/api/v1/", include("apps.expenses.urls")),
     path(f"{URL_PREFIX}/api/v1/", include("apps.followups.urls")),
+    path(f"{URL_PREFIX}/api/v1/", include("apps.leads.urls")),
     path(f"{URL_PREFIX}/api/v1/", include("apps.todos.urls")),
     path(f"{URL_PREFIX}/api/v1/", include("apps.workspace.urls")),
     path(f"{URL_PREFIX}/api/v1/", include("apps.social_feed.urls")),
