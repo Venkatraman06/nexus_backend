@@ -858,32 +858,16 @@ class MyLeaveRequestListView(APIView):
             leave.reviewer_remarks = "Auto-approved as CEO"
             leave.save()
 
+        leave.is_acknowledged = True
+        leave.save(update_fields=['is_acknowledged'])
+
         from apps.notifications.constants import EventType, ReferenceType
         from apps.notifications.publisher import publish_event
         
         reporting_manager = request.user.manager
 
-        # Send to HR (broadcast)
-        publish_event(
-            EventType.LEAVE_REQUESTED,
-            ReferenceType.LEAVE,
-            str(leave.id),
-            payload={
-                "employee_id": str(request.user.id),
-                "employee_name": request.user.full_name,
-                "leave_type": leave.leave_type.name if leave.leave_type else "",
-                "start_date": leave.start_date.isoformat(),
-                "end_date": leave.end_date.isoformat(),
-                "days_count": float(leave.days_count),
-            },
-            actor_id=str(request.user.id),
-            async_delivery=True,
-        )
-
-        # Send to Reporting Manager (if exists) and update acknowledgement status
+        # Send notification ONLY to Reporting Manager (if assigned), else fallback
         if reporting_manager:
-            leave.is_acknowledged = False
-            leave.save(update_fields=['is_acknowledged'])
             publish_event(
                 EventType.LEAVE_REQUESTED,
                 ReferenceType.LEAVE,
@@ -903,9 +887,21 @@ class MyLeaveRequestListView(APIView):
                 async_delivery=True,
             )
         else:
-            leave.is_acknowledged = True
-            leave.save(update_fields=['is_acknowledged'])
-        
+            publish_event(
+                EventType.LEAVE_REQUESTED,
+                ReferenceType.LEAVE,
+                str(leave.id),
+                payload={
+                    "employee_id": str(request.user.id),
+                    "employee_name": request.user.full_name,
+                    "leave_type": leave.leave_type.name if leave.leave_type else "",
+                    "start_date": leave.start_date.isoformat(),
+                    "end_date": leave.end_date.isoformat(),
+                    "days_count": float(leave.days_count),
+                },
+                actor_id=str(request.user.id),
+                async_delivery=True,
+            )
 
         return Response(LeaveRequestSerializer(leave).data, status=status.HTTP_201_CREATED)
 
