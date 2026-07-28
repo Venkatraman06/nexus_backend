@@ -1040,17 +1040,18 @@ class LeaveReviewView(APIView):
         if leave.employee == request.user and not is_ceo:
             return Response({"detail": "You cannot approve your own leave request."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Only HR can approve (or CEO for their own leave)
+        # Authorization check: reporting manager, project manager, admin, or HR fallback
         user_perms = getattr(request, "user_permissions", [])
-        is_hr = "pmt.hrms.leave.approve" in user_perms or request.user.is_superuser
-        is_authorized = is_hr
-        
-        if is_ceo and leave.employee == request.user:
-            is_authorized = True
+        is_reporting_manager = (leave.employee.manager_id == request.user.id)
+        is_pm = self._is_authorized_reviewer(request.user, leave.employee)
+        is_admin_or_ceo = request.user.is_superuser or is_ceo
+        is_hr = "pmt.hrms.leave.approve" in user_perms or (request.user.keycloak_group and request.user.keycloak_group.lower() == "hr")
+
+        is_authorized = is_reporting_manager or is_pm or is_admin_or_ceo or is_hr or (not leave.employee.manager_id)
 
         if not is_authorized:
             return Response(
-                {"detail": "You are not authorized to review this leave request. Only HR can approve."},
+                {"detail": "You are not authorized to review this leave request. Only reporting manager or authorized manager can approve."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -1063,7 +1064,7 @@ class LeaveReviewView(APIView):
         leave.save(update_fields=["status", "reviewer", "reviewer_remarks"])
 
         if leave.status == LeaveRequestStatus.APPROVED:
-            # ── Skip balance deduction if exempt (emergency leave with medical certificate) ──
+            # ── Skip balance deduction if exempt (emergency leave with proof) ──
             if not getattr(leave, "exempt_from_balance", False):
                 balance, _ = LeaveBalance.objects.get_or_create(
                     employee=leave.employee,
@@ -1248,8 +1249,8 @@ class AdminLeaveRequestListView(APIView):
                 "reviewer_remarks": lr.reviewer_remarks,
                 "created_at":       str(lr.created_at.date()),
                 "acknowledged_by":  lr.employee.manager.full_name if lr.is_acknowledged and lr.employee.manager else None,
-                "can_approve":      (lr.status == LeaveRequestStatus.PENDING) and (lr.employee != request.user) and ("pmt.hrms.leave.approve" in getattr(request, "user_permissions", []) or request.user.is_superuser),
-                "can_ack":          (lr.status == LeaveRequestStatus.PENDING) and not lr.is_acknowledged and (lr.employee.manager == request.user),
+                "can_approve":      (lr.status == LeaveRequestStatus.PENDING) and (lr.employee != request.user) and (lr.employee.manager_id == request.user.id or str(lr.employee_id) in pm_emp_ids or request.user.is_superuser or "pmt.hrms.leave.approve" in getattr(request, "user_permissions", []) or (request.user.keycloak_group and request.user.keycloak_group.lower() == "hr") or not lr.employee.manager_id),
+                "can_ack":          (lr.status == LeaveRequestStatus.PENDING) and not lr.is_acknowledged and (str(lr.employee_id) in pm_emp_ids or lr.employee.manager == request.user),
             }
             for lr in qs
         ]
@@ -2508,9 +2509,19 @@ class AttendanceMonthlyReportView(APIView):
             return Response({"detail": "Invalid year/month."}, status=status.HTTP_400_BAD_REQUEST)
 
         is_ceo = getattr(request.user, "is_superuser", False)
+        manager_id = request.query_params.get("reporting_manager")
         try:
             if is_ceo:
-                report = AttendanceMonthlyReport.objects.get(year=year, month=month, is_deleted=False)
+                if manager_id:
+                    report = AttendanceMonthlyReport.objects.get(
+                        year=year, month=month, reporting_manager_id=manager_id, is_deleted=False
+                    )
+                else:
+                    report = AttendanceMonthlyReport.objects.filter(
+                        year=year, month=month, is_deleted=False
+                    ).first()
+                    if not report:
+                        return Response(None, status=status.HTTP_200_OK)
             else:
                 # PM sees only their own submission
                 report = AttendanceMonthlyReport.objects.get(
@@ -2547,9 +2558,15 @@ class AttendanceMonthlyReportView(APIView):
         except (ValueError, TypeError):
             return Response({"detail": "Invalid year/month."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Each PM can submit once per month
-        if AttendanceMonthlyReport.objects.filter(year=year, month=month, reporting_manager=request.user, is_deleted=False).exists():
-            return Response({"detail": "You have already submitted the report for this month."}, status=status.HTTP_400_BAD_REQUEST)
+        # Allow resubmission if previously rejected by soft-deleting the rejected report
+        existing = AttendanceMonthlyReport.objects.filter(
+            year=year, month=month, reporting_manager=request.user, is_deleted=False
+        ).first()
+        if existing:
+            if existing.status == AttendanceReportStatus.REJECTED_BY_CEO:
+                existing.soft_delete(user=request.user)
+            else:
+                return Response({"detail": "You have already submitted the report for this month."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Build summary
         if team_ids:
@@ -2686,17 +2703,36 @@ class AttendanceMonthlyReportReviewView(APIView):
 
 class AttendanceMonthlyReportListView(APIView):
     """
-    GET /attendance/monthly-report/list/
-    CEO: all reports.  PM: only their submissions.
+    GET /attendance/monthly-report/list/?year=YYYY&month=MM
+    CEO: all reports (optionally filtered by month/year). PM: only their submissions.
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         from .models import AttendanceMonthlyReport
         is_ceo = getattr(request.user, "is_superuser", False)
-        qs = AttendanceMonthlyReport.objects.filter(is_deleted=False).order_by("-year", "-month")[:24]
+        year  = request.query_params.get("year")
+        month = request.query_params.get("month")
+
+        qs = AttendanceMonthlyReport.objects.filter(is_deleted=False).order_by("-year", "-month")
+        if year:
+            try:
+                qs = qs.filter(year=int(year))
+            except ValueError:
+                pass
+        if month:
+            try:
+                qs = qs.filter(month=int(month))
+            except ValueError:
+                pass
+
         if not is_ceo:
             qs = qs.filter(reporting_manager=request.user)
+        else:
+            # For CEO, if no month/year is specified, we limit to latest 24 reports
+            if not year and not month:
+                qs = qs[:24]
+
         return Response([_report_dict(r) for r in qs])
 
 

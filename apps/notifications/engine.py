@@ -136,7 +136,7 @@ class NotificationEngine:
 
         if et == "leave.requested":
             emp_id = payload.get("employee_id")
-            groups = [list(hr_employees())]
+            groups = []
             if emp_id:
                 try:
                     emp = Employee.objects.select_related("manager").get(pk=emp_id)
@@ -144,6 +144,8 @@ class NotificationEngine:
                         groups.append([emp.manager])
                 except Employee.DoesNotExist:
                     pass
+            if not groups:
+                groups = [list(managers_and_pmo()), list(hr_employees())]
             return exclude_actor(unique_employees(*groups), event.actor_id)
 
         if et == "payroll.finalized":
@@ -240,6 +242,10 @@ class NotificationEngine:
     def _dispatch_external(channel: str, recipient, title: str, message: str, action_url: str, event: DomainEvent):
         """Stub for future Slack / Teams / WhatsApp / Push delivery; Email is implemented."""
         if channel == NotificationChannel.EMAIL:
+            # Bypass email delivery for tickets and todos
+            if event.event_type.startswith("ticket.") or event.event_type.startswith("todo."):
+                logger.info("Email notification bypassed for %s to %s", event.event_type, recipient.email)
+                return
             try:
                 from django.core.mail import send_mail
                 from django.conf import settings

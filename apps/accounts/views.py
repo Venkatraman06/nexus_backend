@@ -231,6 +231,15 @@ class EmployeeViewSet(BaseModelViewSet):
         instance.soft_delete(user=request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        group_name = serializer.validated_data.get("keycloak_group")
+        if group_name is not None:
+            group_flags = resolve_group_flags(group_name)
+            for k, v in group_flags.items():
+                setattr(instance, k, v)
+            instance.save(update_fields=list(group_flags.keys()))
+
     def partial_update(self, request, *args, **kwargs):
         # If keycloak_group is being changed, inject derived flags into the request data
         group_name = request.data.get("keycloak_group")

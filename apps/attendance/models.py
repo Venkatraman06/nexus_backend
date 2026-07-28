@@ -402,7 +402,7 @@ class AttendanceMonthlyReport(BaseModel):
 
     class Meta:
         db_table        = "hrms_attendance_monthly_report"
-        unique_together = ("year", "month")
+        unique_together = ("reporting_manager", "year", "month")
         ordering        = ["-year", "-month"]
 
     def __str__(self):
