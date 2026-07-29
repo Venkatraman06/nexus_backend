@@ -937,10 +937,39 @@ class MyLeaveBalancesView(APIView):
 
     @extend_schema(tags=["leave"])
     def get(self, request):
-        year     = int(request.query_params.get("year", date.today().year))
+        today = date.today()
+        current_cal_year = today.year
+        fy_year = current_cal_year if today.month >= 4 else current_cal_year - 1
+
+        year_param = request.query_params.get("year")
+        if year_param:
+            years_to_check = [int(year_param)]
+        else:
+            years_to_check = list({current_cal_year, fy_year, fy_year - 1, 2025, 2026})
+
         balances = LeaveBalance.objects.filter(
-            employee=request.user, year=year
+            employee=request.user, year__in=years_to_check
         ).select_related("leave_type")
+
+        if not balances.exists():
+            balances = LeaveBalance.objects.filter(
+                employee=request.user
+            ).select_related("leave_type")
+
+        if not balances.exists():
+            from apps.master.models import LeaveType
+            active_types = LeaveType.objects.filter(is_active=True)
+            for lt in active_types:
+                LeaveBalance.objects.get_or_create(
+                    employee=request.user,
+                    leave_type=lt,
+                    year=fy_year,
+                    defaults={"total_days": lt.max_days or 0, "used_days": 0}
+                )
+            balances = LeaveBalance.objects.filter(
+                employee=request.user
+            ).select_related("leave_type")
+
         return Response(LeaveBalanceSerializer(balances, many=True).data)
 
 
