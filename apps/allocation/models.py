@@ -44,16 +44,17 @@ class Allocation(BaseModel):
 
     def clean(self):
         if not self.allocation_percentage or self.allocation_percentage <= 0 or self.allocation_percentage > 100:
-            raise ValidationError("Allocation must be between 1% and 100%.")
+            raise ValidationError("Allocation percentage must be between 1% and 100%.")
         if self.end_date and self.end_date < self.start_date:
             raise ValidationError("End date cannot be before start date.")
 
-        if not self.employee_id:
+        emp_id = getattr(self, "employee_id", None) or (self.employee.id if getattr(self, "employee", None) else None)
+        if not emp_id:
             return
 
         # Query overlapping active allocations for the same employee
         qs = Allocation.objects.filter(
-            employee_id=self.employee_id,
+            employee_id=emp_id,
             is_deleted=False,
         )
         if self.end_date:
