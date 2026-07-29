@@ -154,8 +154,8 @@ class PaymentAllocationCreateSerializer(serializers.ModelSerializer):
                 f"Payment client '{payment.client.name}' and Invoice client '{invoice.client.name}' must be the same."
             )
 
-        # Ensure project matches if payment project is specified
-        if payment.project_id and invoice.project_id != payment.project_id:
+        # Ensure project matches if payment project and invoice project are both specified
+        if payment.project_id and invoice.project_id and invoice.project_id != payment.project_id:
             raise serializers.ValidationError(
                 f"Payment is restricted to project '{payment.project.name}', but Invoice belongs to project '{invoice.project.name if invoice.project else None}'."
             )
