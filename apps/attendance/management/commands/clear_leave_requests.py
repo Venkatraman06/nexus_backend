@@ -1,5 +1,6 @@
 import sys
 from django.core.management.base import BaseCommand
+from django.db.models import Q
 from apps.attendance.models import LeaveRequest
 
 
@@ -15,17 +16,26 @@ class Command(BaseCommand):
         parser.add_argument(
             '--user',
             type=str,
-            help='Filter deletion by employee username.',
+            help='Filter deletion by employee username or employee code.',
+        )
+        parser.add_argument(
+            '--exclude-user',
+            type=str,
+            help='Exclude employee username or employee code from deletion.',
         )
 
     def handle(self, *args, **options):
         hard_delete = options.get('hard', False)
         username = options.get('user')
+        exclude_user = options.get('exclude_user')
 
         qs = LeaveRequest.objects.all()
 
         if username:
-            qs = qs.filter(employee__username=username)
+            qs = qs.filter(Q(employee__username=username) | Q(employee__employee_code=username))
+
+        if exclude_user:
+            qs = qs.exclude(Q(employee__username=exclude_user) | Q(employee__employee_code=exclude_user))
 
         count = qs.count()
         if count == 0:
