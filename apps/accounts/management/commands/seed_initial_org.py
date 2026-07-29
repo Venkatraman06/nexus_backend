@@ -503,8 +503,8 @@ class Command(BaseCommand):
 
         # Look up by username first (fall back to _DEFAULT_ADMIN_EMAIL for migration safety)
         emp = (
-            Employee.objects.filter(username=admin_email).first()
-            or Employee.objects.filter(username=_DEFAULT_ADMIN_EMAIL).first()
+            Employee.base_objects.filter(username=admin_email).first()
+            or Employee.base_objects.filter(username=_DEFAULT_ADMIN_EMAIL).first()
         )
 
         from apps.master.models import Department, Designation

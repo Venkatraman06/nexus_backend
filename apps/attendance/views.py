@@ -2594,7 +2594,7 @@ class AttendanceMonthlyReportView(APIView):
             from apps.notifications.constants import EventType, ReferenceType
             import calendar as _cal
             ceo_ids = list(
-                Employee.objects.filter(is_superuser=True, is_active=True, is_deleted=False)
+                Employee.base_objects.filter(is_superuser=True, is_active=True, is_deleted=False)
                 .exclude(id=request.user.pk)
                 .values_list("id", flat=True)
             )
