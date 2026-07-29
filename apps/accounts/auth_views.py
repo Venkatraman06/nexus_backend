@@ -56,11 +56,11 @@ def _fetch_employee(kc, access_token):
         user_id = token_info.get("sub")
         if not user_id:
             return None, None
-        emp = Employee.objects.filter(keycloak_id=user_id).first()
+        emp = Employee.base_objects.filter(keycloak_id=user_id).first()
         if emp:
             return emp, user_id
         preferred = token_info.get("preferred_username")
-        emp = Employee.objects.filter(username=preferred).first() if preferred else None
+        emp = Employee.base_objects.filter(username=preferred).first() if preferred else None
         return emp, user_id
     except Exception:
         return None, None
@@ -104,7 +104,7 @@ class TokenView(APIView):
         username = username_input
         if "@" in username_input:
             from apps.accounts.models import Employee
-            emp_by_email = Employee.objects.filter(email__iexact=username_input).first()
+            emp_by_email = Employee.base_objects.filter(email__iexact=username_input).first()
             if emp_by_email and emp_by_email.username:
                 username = emp_by_email.username
 

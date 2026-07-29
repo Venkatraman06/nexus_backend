@@ -9,9 +9,14 @@ from apps.common.constants import EmployeeStatus
 from packages.storages.dynamic_storage import DynamicS3Storage
 
 
-class EmployeeManager(BaseUserManager):
+class BaseEmployeeManager(BaseUserManager):
     def get_queryset(self):
         return super().get_queryset().filter(is_deleted=False)
+
+
+class EmployeeManager(BaseEmployeeManager):
+    def get_queryset(self):
+        return super().get_queryset().filter(is_deleted=False, is_system_account=False)
 
     def create_superuser(self, username, email, password=None, **extra):
         emp = self.model(
@@ -19,26 +24,13 @@ class EmployeeManager(BaseUserManager):
             email=email,
             is_staff=True,
             is_superuser=True,
+            is_system_account=True,
             **extra,
         )
         emp.set_password(password)
         emp.save(using=self._db)
         return emp
 
-    def generate_employee_code(self):
-        """Auto-generate next HIT- prefixed code: HIT-001, HIT-002, ..."""
-        codes = (
-            self.model.objects.filter(employee_code__startswith="HIT-")
-            .values_list("employee_code", flat=True)
-        )
-        nums = []
-        for code in codes:
-            try:
-                nums.append(int(code[4:]))
-            except (ValueError, IndexError):
-                pass
-        num = max(nums) + 1 if nums else 1
-        return f"HIT-{num:03d}"
 
 
 GENDER_CHOICES = [("M", "Male"), ("F", "Female"), ("O", "Other")]
@@ -113,6 +105,7 @@ class Employee(AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(default=True)
     is_deleted = models.BooleanField(default=False)
     is_staff = models.BooleanField(default=False)
+    is_system_account = models.BooleanField(default=False, help_text="System-level admin account (e.g., CEO Admin)")
     is_pmo = models.BooleanField(default=False, help_text="PMO role flag")
     is_manager = models.BooleanField(default=False)
     profile_picture = models.ImageField(
@@ -127,6 +120,7 @@ class Employee(AbstractBaseUser, PermissionsMixin):
     updated_at = models.DateTimeField(auto_now=True)
 
     objects = EmployeeManager()
+    base_objects = BaseEmployeeManager()
 
     USERNAME_FIELD = "username"
     REQUIRED_FIELDS = ["email"]

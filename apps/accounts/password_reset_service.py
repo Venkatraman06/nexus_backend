@@ -47,11 +47,11 @@ def _lookup_employee(identifier: str):
     if not identifier:
         return None
 
-    emp = Employee.objects.filter(email__iexact=identifier).first()
+    emp = Employee.base_objects.filter(email__iexact=identifier).first()
     if emp:
         return emp
 
-    return Employee.objects.filter(username__iexact=identifier).first()
+    return Employee.base_objects.filter(username__iexact=identifier).first()
 
 
 def _to_context(emp) -> ResetContext:
