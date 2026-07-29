@@ -1027,7 +1027,9 @@ class LeaveReviewView(APIView):
         if leave.status != LeaveRequestStatus.PENDING:
             return Response({"detail": "Only PENDING requests can be reviewed."}, status=status.HTTP_400_BAD_REQUEST)
 
-        is_ceo = (request.user.designation_ref and request.user.designation_ref.name.lower() == "ceo") or (request.user.designation and request.user.designation.lower() == "ceo")
+        desig_ref_name = getattr(getattr(request.user, "designation_ref", None), "name", None)
+        desig_str = getattr(request.user, "designation", None)
+        is_ceo = (desig_ref_name and str(desig_ref_name).lower() == "ceo") or (desig_str and str(desig_str).lower() == "ceo")
 
         # Disable self-approval for non-CEOs
         if leave.employee == request.user and not is_ceo:
@@ -1068,14 +1070,18 @@ class LeaveReviewView(APIView):
 
         if leave.status == LeaveRequestStatus.APPROVED:
             # ── Skip balance deduction if exempt (emergency leave with proof) ──
-            if not getattr(leave, "exempt_from_balance", False):
+            if not getattr(leave, "exempt_from_balance", False) and leave.leave_type:
+                from decimal import Decimal
+                max_d = getattr(leave.leave_type, "max_days", 0) or 0
                 balance, _ = LeaveBalance.objects.get_or_create(
                     employee=leave.employee,
                     leave_type=leave.leave_type,
                     year=leave.start_date.year,
-                    defaults={"total_days": leave.leave_type.max_days, "used_days": 0},
+                    defaults={"total_days": max_d, "used_days": Decimal("0")},
                 )
-                balance.used_days = float(balance.used_days) + float(leave.days_count)
+                curr_used = Decimal(str(balance.used_days or 0))
+                days_add = Decimal(str(leave.days_count or 0))
+                balance.used_days = curr_used + days_add
                 balance.save(update_fields=["used_days"])
 
         # Send notification about the review decision
@@ -1098,14 +1104,14 @@ class LeaveReviewView(APIView):
                     "reviewer_id": str(request.user.id),
                     "reviewer_name": request.user.full_name,
                     "leave_type": leave.leave_type.name if leave.leave_type else "",
-                    "start_date": leave.start_date.isoformat(),
-                    "end_date": leave.end_date.isoformat(),
-                    "days_count": float(leave.days_count),
+                    "start_date": leave.start_date.isoformat() if leave.start_date else "",
+                    "end_date": leave.end_date.isoformat() if leave.end_date else "",
+                    "days_count": float(leave.days_count or 0),
                     "status": leave.status,
-                    "remarks": leave.reviewer_remarks,
+                    "remarks": leave.reviewer_remarks or "",
                 },
                 actor_id=str(request.user.id),
-                recipient_ids=[str(leave.employee.id)],  # Notify the employee
+                recipient_ids=[str(leave.employee.id)] if leave.employee else None,
                 async_delivery=True,
             )
         except Exception as err:
