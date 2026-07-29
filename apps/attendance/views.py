@@ -652,46 +652,78 @@ class AttendanceExportView(APIView):
             rec_map[(str(rec.employee_id), rec.date)] = rec
 
         import openpyxl
-        from openpyxl.styles import Font, Alignment, PatternFill
+        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
         from openpyxl.utils import get_column_letter
 
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = f"Attendance {month_name} {year}"
 
-        ws.append([f"Attendance Report — {month_name} {year}"])
-        ws.append([])
-
+        # Setup header texts
         fixed_headers   = ["Emp Code", "Full Name", "Designation", "Department"]
-        day_headers     = [f"{d.day:02d} {d.strftime('%a')}" for d in all_dates]
+        day_headers     = [f"{d.day:02d}\n{d.strftime('%a')}" for d in all_dates]
         summary_headers = ["Present", "WFH", "Half Day", "On Leave", "Absent", "Holidays", "Working Hrs"]
+        total_cols = len(fixed_headers) + len(day_headers) + len(summary_headers)
+
+        # 1. Row 1: Merged Headers
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(fixed_headers))
+        ws.merge_cells(start_row=1, start_column=len(fixed_headers)+1, end_row=1, end_column=len(fixed_headers)+len(day_headers))
+        ws.merge_cells(start_row=1, start_column=len(fixed_headers)+len(day_headers)+1, end_row=1, end_column=total_cols)
+
+        ws.cell(1, 1, "Employee Information")
+        ws.cell(1, len(fixed_headers)+1, "Daily Attendance")
+        ws.cell(1, len(fixed_headers)+len(day_headers)+1, "Monthly Summary")
+
+        # 2. Row 2: Individual Column Names
         headers = fixed_headers + day_headers + summary_headers
         ws.append(headers)
 
-        header_font = Font(bold=True)
-        center_align = Alignment(horizontal="center", vertical="center")
-        left_align = Alignment(horizontal="left", vertical="center")
+        # 3. Formatting setup
+        font_white_bold = Font(bold=True, color="FFFFFF")
+        align_center_wrap = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        align_left_wrap = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        align_center = Alignment(horizontal="center", vertical="center")
+        align_left = Alignment(horizontal="left", vertical="center")
+        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
 
-        for col_num, header_val in enumerate(headers, 1):
-            cell = ws.cell(row=3, column=col_num)
-            cell.font = header_font
-            if col_num > 4 and col_num <= 4 + len(day_headers):
-                cell.alignment = center_align
-            else:
-                cell.alignment = left_align
+        fill_emp_info = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")     # Dark Blue
+        fill_daily = PatternFill(start_color="2F75B5", end_color="2F75B5", fill_type="solid")        # Medium Blue
+        fill_summary = PatternFill(start_color="595959", end_color="595959", fill_type="solid")      # Dark Gray
+        fill_alt_row = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")      # Light Gray for alternate rows
 
         colors = {
-            "PRESENT": "dcfce7",
-            "WFH": "dbeafe",
-            "HALF_DAY": "fef3c7",
-            "ON_LEAVE": "f3e8ff",
-            "ABSENT": "fee2e2",
-            "HOLIDAY": "ffedd5",
-            "WEEKEND": "f1f5f9",
+            "PRESENT": "C6E0B4",   # Green
+            "WFH": "BDD7EE",       # Blue
+            "HALF_DAY": "FCE4D6",  # Orange
+            "ON_LEAVE": "FFF2CC",  # Yellow
+            "ABSENT": "FFC7CE",    # Red
+            "HOLIDAY": "E2EFDA",   # Light Green/Purple (Requested Purple: E4DFEC)
+            "WEEKEND": "D9D9D9",   # Gray
         }
+        colors["HOLIDAY"] = "E4DFEC"
         fills = {k: PatternFill(start_color=v, end_color=v, fill_type="solid") for k,v in colors.items()}
 
-        row_idx = 4
+        # Apply header formatting (Row 1 & 2)
+        for row_num in (1, 2):
+            for col_num in range(1, total_cols + 1):
+                cell = ws.cell(row=row_num, column=col_num)
+                cell.font = font_white_bold
+                cell.border = thin_border
+                if col_num <= len(fixed_headers):
+                    cell.fill = fill_emp_info
+                    cell.alignment = align_center_wrap if row_num == 1 else align_left_wrap
+                elif col_num <= len(fixed_headers) + len(day_headers):
+                    cell.fill = fill_daily
+                    cell.alignment = align_center_wrap
+                else:
+                    cell.fill = fill_summary
+                    cell.alignment = align_center_wrap
+
+        ws.row_dimensions[1].height = 25
+        ws.row_dimensions[2].height = 35
+
+        # 4. Write Data rows
+        row_idx = 3
         for emp in employees:
             desig = emp.designation_ref.name if emp.designation_ref_id else (emp.designation or "")
             dept  = emp.department_ref.name  if emp.department_ref_id  else (emp.department  or "")
@@ -699,18 +731,24 @@ class AttendanceExportView(APIView):
             cnt = {k: 0 for k in ("present", "wfh", "half_day", "on_leave", "absent", "holiday")}
             total_working_hrs = 0.0
 
-            ws.cell(row=row_idx, column=1, value=emp.employee_code).alignment = left_align
-            ws.cell(row=row_idx, column=2, value=emp.full_name).alignment = left_align
-            ws.cell(row=row_idx, column=3, value=desig).alignment = left_align
-            ws.cell(row=row_idx, column=4, value=dept).alignment = left_align
+            # Alternate row fill
+            row_fill = fill_alt_row if row_idx % 2 == 0 else None
 
+            # Employee Info
+            for c_idx, val in enumerate([emp.employee_code, emp.full_name, desig, dept], 1):
+                cell = ws.cell(row=row_idx, column=c_idx, value=val)
+                cell.alignment = align_left
+                cell.border = thin_border
+                if row_fill: cell.fill = row_fill
+
+            # Daily Attendance
             for i, d in enumerate(all_dates):
                 rec = rec_map.get((str(emp.id), d))
                 if rec:
                     stat = rec.status
                     code = STATUS_CODE.get(stat, stat)
                     if rec.check_in and stat in ("PRESENT", "WFH", "HALF_DAY"):
-                        code = f"{code} {rec.check_in.strftime('%H:%M')}"
+                        code = f"{code}\n{rec.check_in.strftime('%H:%M')}"
                     total_working_hrs += rec.working_hours
                 else:
                     stat = "WEEKEND" if d.weekday() >= 5 else "ABSENT"
@@ -720,38 +758,48 @@ class AttendanceExportView(APIView):
                 if stat_key in cnt:
                     cnt[stat_key] += 1
 
-                col_num = 5 + i
+                col_num = len(fixed_headers) + 1 + i
                 cell = ws.cell(row=row_idx, column=col_num, value=code)
-                cell.alignment = center_align
+                cell.alignment = align_center_wrap
+                cell.border = thin_border
                 if stat in fills:
                     cell.fill = fills[stat]
 
+            # Summary Info
             summary_cells = [
                 cnt["present"], cnt["wfh"], cnt["half_day"],
                 cnt["on_leave"], cnt["absent"], cnt["holiday"],
                 round(total_working_hrs, 2),
             ]
             for j, val in enumerate(summary_cells):
-                col_num = 5 + len(all_dates) + j
+                col_num = len(fixed_headers) + len(day_headers) + 1 + j
                 cell = ws.cell(row=row_idx, column=col_num, value=val)
-                cell.alignment = center_align
+                cell.alignment = align_center
+                cell.border = thin_border
+                if row_fill: cell.fill = row_fill
 
             row_idx += 1
 
+        # Adjust column widths
         ws.column_dimensions['A'].width = 12
         ws.column_dimensions['B'].width = 25
         ws.column_dimensions['C'].width = 20
         ws.column_dimensions['D'].width = 20
         for i in range(len(all_dates)):
-            ws.column_dimensions[get_column_letter(5 + i)].width = 9
+            ws.column_dimensions[get_column_letter(len(fixed_headers) + 1 + i)].width = 7
         for j in range(len(summary_headers)):
-            ws.column_dimensions[get_column_letter(5 + len(all_dates) + j)].width = 12
+            ws.column_dimensions[get_column_letter(len(fixed_headers) + len(day_headers) + 1 + j)].width = 11
 
+        # 5. Freeze Panes & AutoFilter
+        ws.freeze_panes = "E3"
+        ws.auto_filter.ref = f"A2:{get_column_letter(total_cols)}{row_idx-1}"
+
+        # Legend
         row_idx += 1
-        ws.cell(row=row_idx, column=1, value="Legend:").font = header_font
+        ws.cell(row=row_idx, column=1, value="Legend:").font = Font(bold=True)
         legend = [
-            "P=Present", "WFH=Work From Home", "HD=Half Day",
-            "OL=On Leave", "HOL=Holiday", "—=Weekend", "ABS=Absent"
+            "P = Present", "WFH = Work From Home", "HD = Half Day",
+            "OL = On Leave", "HOL = Holiday", "— = Weekend", "ABS = Absent"
         ]
         for idx, leg_item in enumerate(legend):
             ws.cell(row=row_idx + 1 + idx, column=1, value=leg_item)
