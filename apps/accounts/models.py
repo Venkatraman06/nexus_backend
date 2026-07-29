@@ -9,7 +9,7 @@ from apps.common.constants import EmployeeStatus
 from packages.storages.dynamic_storage import DynamicS3Storage
 
 
-class EmployeeManager(BaseUserManager):
+class BaseEmployeeManager(BaseUserManager):
     def get_queryset(self):
         return super().get_queryset().filter(is_deleted=False)
 
@@ -28,7 +28,7 @@ class EmployeeManager(BaseUserManager):
     def generate_employee_code(self):
         """Auto-generate next HIT- prefixed code: HIT-001, HIT-002, ..."""
         codes = (
-            self.model.objects.filter(employee_code__startswith="HIT-")
+            self.model.base_objects.filter(employee_code__startswith="HIT-")
             .values_list("employee_code", flat=True)
         )
         nums = []
@@ -39,6 +39,12 @@ class EmployeeManager(BaseUserManager):
                 pass
         num = max(nums) + 1 if nums else 1
         return f"HIT-{num:03d}"
+
+
+class EmployeeManager(BaseEmployeeManager):
+    def get_queryset(self):
+        # Exclude the CEO Admin (system account) from all employee-related operational queries
+        return super().get_queryset().exclude(is_superuser=True)
 
 
 GENDER_CHOICES = [("M", "Male"), ("F", "Female"), ("O", "Other")]
@@ -126,6 +132,7 @@ class Employee(AbstractBaseUser, PermissionsMixin):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    base_objects = BaseEmployeeManager()
     objects = EmployeeManager()
 
     USERNAME_FIELD = "username"
