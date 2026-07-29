@@ -26,7 +26,7 @@ LOGGABLE_TICKET_TYPES = {
     TicketType.SUBTASK,
 }
 
-CLOSED_STATE_SLUGS = ("closed", "cancelled", "canceled")
+CLOSED_STATE_SLUGS = ("closed", "cancelled", "canceled", "completed", "finished", "done")
 
 # Sun–Sat calendar week; expected hours still based on Mon–Fri working days
 CALENDAR_WEEK_DAYS = 7
@@ -77,6 +77,12 @@ def get_active_allocations(employee, log_date: date):
         employee=employee,
         is_deleted=False,
         start_date__lte=log_date,
+        project__is_deleted=False,
+        project__is_active=True,
+    ).exclude(
+        project__workflow_state__is_final=True
+    ).exclude(
+        project__workflow_state__slug__in=["completed", "finished", "closed", "cancelled", "done"]
     ).filter(Q(end_date__isnull=True) | Q(end_date__gte=log_date))
 
 
@@ -204,8 +210,18 @@ def project_capacity_for_date(employee, project_id, log_date: date) -> Decimal:
 def is_ticket_active(ticket: Ticket) -> bool:
     if ticket.is_deleted or not ticket.is_active:
         return False
+    if ticket.project and (
+        getattr(getattr(ticket.project, "workflow_state", None), "is_final", False)
+        or (getattr(getattr(ticket.project, "workflow_state", None), "slug", "") in ["completed", "finished", "closed", "cancelled", "done"])
+    ):
+        return False
+    if ticket.workflow_state and getattr(ticket.workflow_state, "is_final", False):
+        return False
     slug = (getattr(ticket.workflow_state, "slug", None) or "").lower()
-    return not any(term in slug for term in CLOSED_STATE_SLUGS)
+    name = (getattr(ticket.workflow_state, "name", None) or "").lower()
+    if any(term in slug for term in CLOSED_STATE_SLUGS) or any(term in name for term in CLOSED_STATE_SLUGS):
+        return False
+    return True
 
 
 def get_loggable_tickets(employee, log_date: date, search: str = ""):

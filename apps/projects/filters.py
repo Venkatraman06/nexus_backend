@@ -21,6 +21,17 @@ class ProjectFilter(django_filters.FilterSet):
     start_date_from = django_filters.DateFilter(field_name="start_date", lookup_expr="gte")
     start_date_to = django_filters.DateFilter(field_name="start_date", lookup_expr="lte")
 
+    exclude_finished = django_filters.BooleanFilter(method="filter_exclude_finished")
+
     class Meta:
         model = Project
-        fields = ["is_active", "business_type", "billing_type", "client", "manager"]
+        fields = ["is_active", "business_type", "billing_type", "client", "manager", "exclude_finished"]
+
+    def filter_exclude_finished(self, queryset, name, value):
+        if value:
+            return queryset.exclude(
+                workflow_state__is_final=True
+            ).exclude(
+                workflow_state__slug__in=["completed", "finished", "closed", "cancelled", "done"]
+            )
+        return queryset

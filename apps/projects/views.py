@@ -221,7 +221,12 @@ class ProjectViewSet(BaseModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="dropdown")
     def dropdown(self, request):
-        qs = Project.objects.filter(is_deleted=False, is_active=True).order_by("name")
+        qs = Project.objects.filter(is_deleted=False, is_active=True)
+        if request.query_params.get("include_finished") != "true":
+            qs = qs.exclude(workflow_state__is_final=True).exclude(
+                workflow_state__slug__in=["completed", "finished", "closed", "cancelled", "done"]
+            )
+        qs = qs.order_by("name")
         return Response(ProjectDropdownSerializer(qs, many=True).data)
 
     @action(detail=True, methods=["get"], url_path="allocated-employees")
