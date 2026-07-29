@@ -942,38 +942,50 @@ class MyLeaveBalancesView(APIView):
         fy_year = current_cal_year if today.month >= 4 else current_cal_year - 1
 
         year_param = request.query_params.get("year")
-        if year_param:
-            years_to_check = [int(year_param)]
-        else:
-            years_to_check = list({current_cal_year, fy_year, fy_year - 1, 2025, 2026})
+        target_year = int(year_param) if year_param else fy_year
 
-        # Auto-ensure every active LeaveType has a LeaveBalance record for this employee
+        balances = LeaveBalance.objects.filter(
+            employee=request.user, year=target_year
+        ).select_related("leave_type").order_by("leave_type__name")
+
+        if not balances.exists():
+            latest_year = LeaveBalance.objects.filter(
+                employee=request.user
+            ).order_by("-year").values_list("year", flat=True).first()
+            if latest_year:
+                target_year = latest_year
+                balances = LeaveBalance.objects.filter(
+                    employee=request.user, year=target_year
+                ).select_related("leave_type").order_by("leave_type__name")
+
         from apps.master.models import LeaveType
         active_types = LeaveType.objects.filter(is_active=True)
         for lt in active_types:
             has_bal = LeaveBalance.objects.filter(
                 employee=request.user,
                 leave_type=lt,
-                year__in=years_to_check
+                year=target_year
             ).exists()
             if not has_bal:
                 LeaveBalance.objects.get_or_create(
                     employee=request.user,
                     leave_type=lt,
-                    year=fy_year,
+                    year=target_year,
                     defaults={"total_days": lt.max_days or 0, "used_days": 0}
                 )
 
         balances = LeaveBalance.objects.filter(
-            employee=request.user, year__in=years_to_check
+            employee=request.user, year=target_year
         ).select_related("leave_type").order_by("leave_type__name")
 
-        if not balances.exists():
-            balances = LeaveBalance.objects.filter(
-                employee=request.user
-            ).select_related("leave_type").order_by("leave_type__name")
+        unique_balances = []
+        seen_leave_type_ids = set()
+        for b in balances:
+            if b.leave_type_id not in seen_leave_type_ids:
+                unique_balances.append(b)
+                seen_leave_type_ids.add(b.leave_type_id)
 
-        return Response(LeaveBalanceSerializer(balances, many=True).data)
+        return Response(LeaveBalanceSerializer(unique_balances, many=True).data)
 
 
 class MyLeaveRequestListView(APIView):
