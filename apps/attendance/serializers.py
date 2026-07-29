@@ -59,6 +59,7 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
     leave_type_name  = serializers.CharField(source="leave_type.name", read_only=True)
     leave_type_color = serializers.CharField(source="leave_type.color", read_only=True)
     reviewer_name    = serializers.SerializerMethodField()
+    exempt_from_balance = serializers.SerializerMethodField()
 
     class Meta:
         model  = LeaveRequest
@@ -66,8 +67,15 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
             "id", "leave_type", "leave_type_name", "leave_type_color",
             "start_date", "end_date", "days_count", "status",
             "reason", "reviewer_name", "reviewer_remarks", "created_at",
+            "medical_certificate", "is_emergency", "exempt_from_balance",
         ]
         read_only_fields = ["id", "days_count", "status", "reviewer_name", "reviewer_remarks", "created_at"]
+
+    def get_exempt_from_balance(self, obj):
+        return bool(obj.is_emergency and obj.medical_certificate)
+
+    def get_reviewer_name(self, obj):
+        return obj.reviewer.full_name if obj.reviewer_id else None
 
     def create(self, validated_data):
         # Strip internal keys that are not model fields

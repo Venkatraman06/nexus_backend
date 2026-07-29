@@ -1242,6 +1242,10 @@ class LeaveTeamRequestsView(APIView):
             )
             can_ack = False
 
+            med_cert_url = request.build_absolute_uri(lr.medical_certificate.url) if lr.medical_certificate else None
+            is_emerg = getattr(lr, "is_emergency", False)
+            exempt = bool(is_emerg and lr.medical_certificate)
+
             results.append({
                 "id": str(lr.id),
                 "employee": lr.employee.full_name,
@@ -1260,6 +1264,9 @@ class LeaveTeamRequestsView(APIView):
                 "can_approve": can_approve,
                 "can_ack": can_ack,
                 "can_view_only": not can_approve,
+                "medical_certificate": med_cert_url,
+                "is_emergency": is_emerg,
+                "exempt_from_balance": exempt,
             })
 
         return Response({
