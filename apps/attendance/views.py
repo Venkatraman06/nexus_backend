@@ -1033,10 +1033,20 @@ class LeaveReviewView(APIView):
         if leave.employee == request.user and not is_ceo:
             return Response({"detail": "You cannot approve your own leave request."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Authorization check: reporting manager, project manager, admin, or HR fallback
+        # Authorization check: reporting manager, manager hierarchy, project manager, admin, or HR fallback
         user_perms = getattr(request, "user_permissions", [])
-        is_reporting_manager = (leave.employee.manager_id == request.user.id)
-        is_pm = self._is_authorized_reviewer(request.user, leave.employee)
+        reporting_map = get_reporting_hierarchy_map(request.user)
+
+        from apps.allocation.models import Allocation
+        pm_allocations = Allocation.objects.filter(
+            project__manager=request.user,
+            is_deleted=False,
+            is_active=True
+        ).exclude(employee=request.user)
+        pm_emp_ids = {str(alloc.employee_id) for alloc in pm_allocations}
+
+        is_reporting_manager = (leave.employee.manager_id == request.user.id) or (str(leave.employee_id) in reporting_map) or is_in_manager_chain(request.user, leave.employee)
+        is_pm = (str(leave.employee_id) in pm_emp_ids) or self._is_authorized_reviewer(request.user, leave.employee)
         is_admin_or_ceo = request.user.is_superuser or is_ceo
         is_hr = "pmt.hrms.leave.approve" in user_perms or (request.user.keycloak_group and request.user.keycloak_group.lower() == "hr")
 
@@ -1069,34 +1079,37 @@ class LeaveReviewView(APIView):
                 balance.save(update_fields=["used_days"])
 
         # Send notification about the review decision
-        from apps.notifications.constants import EventType, ReferenceType
-        from apps.notifications.publisher import publish_event
-        
-        if leave.status == LeaveRequestStatus.APPROVED:
-            event_type = EventType.LEAVE_APPROVED
-        else:
-            event_type = EventType.LEAVE_REJECTED
+        try:
+            from apps.notifications.constants import EventType, ReferenceType
+            from apps.notifications.publisher import publish_event
             
-        publish_event(
-            event_type,
-            ReferenceType.LEAVE,
-            str(leave.id),
-            payload={
-                "employee_id": str(leave.employee.id),
-                "employee_name": leave.employee.full_name,
-                "reviewer_id": str(request.user.id),
-                "reviewer_name": request.user.full_name,
-                "leave_type": leave.leave_type.name if leave.leave_type else "",
-                "start_date": leave.start_date.isoformat(),
-                "end_date": leave.end_date.isoformat(),
-                "days_count": float(leave.days_count),
-                "status": leave.status,
-                "remarks": leave.reviewer_remarks,
-            },
-            actor_id=str(request.user.id),
-            recipient_ids=[str(leave.employee.id)],  # Notify the employee
-            async_delivery=True,
-        )
+            if leave.status == LeaveRequestStatus.APPROVED:
+                event_type = EventType.LEAVE_APPROVED
+            else:
+                event_type = EventType.LEAVE_REJECTED
+                
+            publish_event(
+                event_type,
+                ReferenceType.LEAVE,
+                str(leave.id),
+                payload={
+                    "employee_id": str(leave.employee.id),
+                    "employee_name": leave.employee.full_name,
+                    "reviewer_id": str(request.user.id),
+                    "reviewer_name": request.user.full_name,
+                    "leave_type": leave.leave_type.name if leave.leave_type else "",
+                    "start_date": leave.start_date.isoformat(),
+                    "end_date": leave.end_date.isoformat(),
+                    "days_count": float(leave.days_count),
+                    "status": leave.status,
+                    "remarks": leave.reviewer_remarks,
+                },
+                actor_id=str(request.user.id),
+                recipient_ids=[str(leave.employee.id)],  # Notify the employee
+                async_delivery=True,
+            )
+        except Exception as err:
+            logger.warning("Failed to publish leave review notification: %s", err)
 
         return Response(LeaveRequestSerializer(leave).data)
 
