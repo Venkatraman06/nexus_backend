@@ -1332,6 +1332,9 @@ class AdminLeaveRequestListView(APIView):
                 "acknowledged_by":  lr.employee.manager.full_name if lr.is_acknowledged and lr.employee.manager else None,
                 "can_approve":      (lr.status == LeaveRequestStatus.PENDING) and (lr.employee != request.user) and (lr.employee.manager_id == request.user.id or str(lr.employee_id) in pm_emp_ids or request.user.is_superuser or is_ceo or not lr.employee.manager_id),
                 "can_ack":          False,
+                "is_emergency":     getattr(lr, "is_emergency", False),
+                "medical_certificate": request.build_absolute_uri(lr.medical_certificate.url) if lr.medical_certificate else None,
+                "exempt_from_balance": bool(getattr(lr, "is_emergency", False) and lr.medical_certificate),
             }
             for lr in qs
         ]
