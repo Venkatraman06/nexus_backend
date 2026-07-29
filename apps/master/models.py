@@ -186,7 +186,7 @@ class Holiday(MasterBase):
 
 class LeaveType(MasterBase):
     code     = models.CharField(max_length=20, unique=True)
-    max_days = models.PositiveIntegerField(default=0, help_text="Max days allowed per year (0 = unlimited)")
+    max_days = models.DecimalField(max_digits=5, decimal_places=1, default=0, help_text="Max days allowed per year (0 = unlimited)")
     is_paid  = models.BooleanField(default=True)
     color    = models.CharField(max_length=20, default="#1677ff")
 
