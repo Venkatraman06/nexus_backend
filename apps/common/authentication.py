@@ -51,9 +51,9 @@ class KeycloakAuthentication(BaseAuthentication):
             from apps.accounts.services import KeycloakSyncService
             from django.utils import timezone
 
-            user = Employee.base_objects.filter(keycloak_id=user_id).first()
+            user = Employee.objects.filter(keycloak_id=user_id).first()
             if user is None and username:
-                user = Employee.base_objects.filter(username=username).first()
+                user = Employee.objects.filter(username=username).first()
                 if user and not user.keycloak_id:
                     user.keycloak_id = user_id
                     user.last_login = timezone.now()
