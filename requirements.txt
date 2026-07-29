@@ -53,3 +53,4 @@ django-jazzmin==3.0.4
 openpyxl==3.1.2
 pyotp
 qrcode
+openpyxl>=3.1.0
