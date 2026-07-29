@@ -1603,34 +1603,16 @@ class LeaveAssignView(APIView):
             cf_days     = eligible_carry_forward_days(emp, leave_type, fy_start_year) if carry_forward else Decimal("0")
             final_total = total_days + cf_days
 
-            if LeaveBalance.objects.filter(employee=emp, leave_type=leave_type, year=fy_start_year).exists():
-                counts["duplicate"] += 1
-                results.append({
-                    "employee_id": str(emp.id), "employee_name": emp.full_name,
-                    "status": "duplicate",
-                    "message": f"Already assigned for {fy_label(fy_start_year)}.",
-                })
-                continue
-
-            if leave_type.max_days and final_total > leave_type.max_days:
-                counts["max_days_exceeded"] += 1
-                results.append({
-                    "employee_id": str(emp.id), "employee_name": emp.full_name,
-                    "status": "max_days_exceeded",
-                    "message": f"{final_total} day(s) exceeds the {leave_type.max_days}-day max for {leave_type.name}.",
-                })
-                continue
-
-            LeaveBalance.objects.create(
+            bal, created = LeaveBalance.objects.update_or_create(
                 employee=emp, leave_type=leave_type, year=fy_start_year,
-                total_days=final_total, used_days=0,
+                defaults={"total_days": final_total}
             )
             counts["assigned"] += 1
             results.append({
                 "employee_id": str(emp.id), "employee_name": emp.full_name,
-                "status": "assigned",
+                "status": "assigned" if created else "updated",
                 "message": (
-                    f"Assigned {final_total} day(s)"
+                    f"{'Assigned' if created else 'Updated'} {final_total} day(s)"
                     + (f" (incl. {cf_days} carried forward)" if cf_days > 0 else "")
                     + f" for {fy_label(fy_start_year)}."
                 ),
