@@ -858,9 +858,6 @@ class MyLeaveRequestListView(APIView):
             leave.reviewer_remarks = "Auto-approved as CEO"
             leave.save()
 
-        leave.is_acknowledged = True
-        leave.save(update_fields=['is_acknowledged'])
-
         from apps.notifications.constants import EventType, ReferenceType
         from apps.notifications.publisher import publish_event
         
@@ -1110,13 +1107,40 @@ class LeaveTeamMetaView(APIView):
     @extend_schema(tags=["leave"])
     def get(self, request):
         reporting_map = get_reporting_hierarchy_map(request.user)
+        
+        from apps.allocation.models import Allocation
+        pm_allocations = Allocation.objects.filter(
+            project__manager=request.user,
+            is_deleted=False,
+            is_active=True
+        ).exclude(employee=request.user)
+        
+        for alloc in pm_allocations:
+            if str(alloc.employee_id) not in reporting_map:
+                reporting_map[str(alloc.employee_id)] = "project"
+
+        is_ceo = (request.user.designation_ref and request.user.designation_ref.name.lower() == "ceo") or (request.user.designation and request.user.designation.lower() == "ceo")
+        if request.user.is_superuser or is_ceo:
+            all_emp_ids = account_models.Employee.objects.filter(is_active=True, is_deleted=False).exclude(id=request.user.id).values_list("id", flat=True)
+            for eid in all_emp_ids:
+                if str(eid) not in reporting_map:
+                    reporting_map[str(eid)] = "all"
+
         direct_count = sum(1 for lvl in reporting_map.values() if lvl == "direct")
-        indirect_count = sum(1 for lvl in reporting_map.values() if lvl == "indirect")
+        indirect_count = sum(1 for lvl in reporting_map.values() if lvl in ("indirect", "project", "all"))
+        pending_count = LeaveRequest.objects.filter(
+            employee_id__in=reporting_map.keys(),
+            status="PENDING",
+            is_deleted=False
+        ).exclude(employee=request.user).count()
+
         return Response({
             "has_team": len(reporting_map) > 0,
+            "pending_count": pending_count,
             "direct_count": direct_count,
             "indirect_count": indirect_count,
         })
+
 
 
 class LeaveTeamRequestsView(APIView):
@@ -1167,13 +1191,20 @@ class LeaveTeamRequestsView(APIView):
             is_deleted=False
         ).count()
 
+        is_ceo = (request.user.designation_ref and request.user.designation_ref.name.lower() == "ceo") or (request.user.designation and request.user.designation.lower() == "ceo")
+
         results = []
         for lr in qs:
             lvl = reporting_map[str(lr.employee_id)]
-            user_perms = getattr(request, "user_permissions", [])
-            is_hr = "pmt.hrms.leave.approve" in user_perms or request.user.is_superuser
-            can_approve = is_hr and (lr.status == "PENDING") and (lr.employee != request.user) and (lvl != "direct")
-            can_ack = (lvl == "direct") and not lr.is_acknowledged and (lr.status == "PENDING")
+            is_direct_rm = (lr.employee.manager_id == request.user.id) or (lvl == "direct")
+            is_pm_rev = (lvl == "project") or (str(lr.employee_id) in pm_emp_ids)
+            is_admin_or_ceo = request.user.is_superuser or is_ceo
+
+            can_approve = (lr.status == "PENDING") and (lr.employee != request.user) and (
+                is_direct_rm or is_pm_rev or is_admin_or_ceo or not lr.employee.manager_id
+            )
+            can_ack = False
+
             results.append({
                 "id": str(lr.id),
                 "employee": lr.employee.full_name,
@@ -1191,7 +1222,7 @@ class LeaveTeamRequestsView(APIView):
                 "reporting_level": lvl,
                 "can_approve": can_approve,
                 "can_ack": can_ack,
-                "can_view_only": not (can_approve or can_ack),
+                "can_view_only": not can_approve,
             })
 
         return Response({
@@ -1229,6 +1260,16 @@ class AdminLeaveRequestListView(APIView):
             ),
         }
 
+        from apps.allocation.models import Allocation
+        pm_allocations = Allocation.objects.filter(
+            project__manager=request.user,
+            is_deleted=False,
+            is_active=True
+        ).exclude(employee=request.user)
+        pm_emp_ids = {str(alloc.employee_id) for alloc in pm_allocations}
+
+        is_ceo = (request.user.designation_ref and request.user.designation_ref.name.lower() == "ceo") or (request.user.designation and request.user.designation.lower() == "ceo")
+
         data = [
             {
                 "id":               str(lr.id),
@@ -1245,8 +1286,8 @@ class AdminLeaveRequestListView(APIView):
                 "reviewer_remarks": lr.reviewer_remarks,
                 "created_at":       str(lr.created_at.date()),
                 "acknowledged_by":  lr.employee.manager.full_name if lr.is_acknowledged and lr.employee.manager else None,
-                "can_approve":      (lr.status == LeaveRequestStatus.PENDING) and (lr.employee != request.user) and (lr.employee.manager_id == request.user.id or str(lr.employee_id) in pm_emp_ids or request.user.is_superuser or "pmt.hrms.leave.approve" in getattr(request, "user_permissions", []) or (request.user.keycloak_group and request.user.keycloak_group.lower() == "hr") or not lr.employee.manager_id),
-                "can_ack":          (lr.status == LeaveRequestStatus.PENDING) and not lr.is_acknowledged and (str(lr.employee_id) in pm_emp_ids or lr.employee.manager == request.user),
+                "can_approve":      (lr.status == LeaveRequestStatus.PENDING) and (lr.employee != request.user) and (lr.employee.manager_id == request.user.id or str(lr.employee_id) in pm_emp_ids or request.user.is_superuser or is_ceo or not lr.employee.manager_id),
+                "can_ack":          False,
             }
             for lr in qs
         ]

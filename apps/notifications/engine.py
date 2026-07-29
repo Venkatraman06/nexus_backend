@@ -142,10 +142,17 @@ class NotificationEngine:
                     emp = Employee.objects.select_related("manager").get(pk=emp_id)
                     if emp.manager:
                         groups.append([emp.manager])
+                    from apps.allocation.models import Allocation
+                    pm_allocs = Allocation.objects.filter(
+                        employee_id=emp_id, is_active=True, is_deleted=False
+                    ).select_related("project__manager")
+                    pms = [a.project.manager for a in pm_allocs if a.project and a.project.manager and a.project.manager.is_active and not a.project.manager.is_deleted]
+                    if pms:
+                        groups.append(pms)
                 except Employee.DoesNotExist:
                     pass
             if not groups:
-                groups = [list(managers_and_pmo()), list(hr_employees())]
+                groups = [list(managers_and_pmo())]
             return exclude_actor(unique_employees(*groups), event.actor_id)
 
         if et == "payroll.finalized":
