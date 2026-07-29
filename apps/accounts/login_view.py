@@ -64,9 +64,9 @@ class LoginView(APIView):
         if user_id:
             from apps.accounts.models import Employee
             from django.utils import timezone
-            emp = Employee.objects.filter(keycloak_id=user_id).first()
+            emp = Employee.base_objects.filter(keycloak_id=user_id).first()
             if emp is None:
-                emp = Employee.objects.filter(username=username).first()
+                emp = Employee.base_objects.filter(username=username).first()
                 if emp and not emp.keycloak_id:
                     emp.keycloak_id = user_id
             if emp:

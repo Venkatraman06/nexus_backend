@@ -97,7 +97,7 @@ class KeycloakSyncService:
 
                 try:
                     group_name = self._primary_group(kc_id)
-                    existing = Employee.objects.filter(keycloak_id=kc_id).first()
+                    existing = Employee.base_objects.filter(keycloak_id=kc_id).first()
                     data = self._build_employee_data(kc_user, group_name, is_new=(existing is None))
 
                     if existing is None:
@@ -148,7 +148,7 @@ class KeycloakSyncService:
         self._load_groups()
         kc_user = self.admin.get_user(keycloak_id)
         group_name = self._primary_group(keycloak_id)
-        existing = Employee.objects.filter(keycloak_id=keycloak_id).first()
+        existing = Employee.base_objects.filter(keycloak_id=keycloak_id).first()
         data = self._build_employee_data(kc_user, group_name, is_new=(existing is None))
 
         if existing is None:
