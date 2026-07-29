@@ -651,27 +651,60 @@ class AttendanceExportView(APIView):
         for rec in all_records:
             rec_map[(str(rec.employee_id), rec.date)] = rec
 
-        output = io.StringIO()
-        output.write('\ufeff')  # UTF-8 BOM for Excel/LibreOffice
-        writer = csv.writer(output)
+        import openpyxl
+        from openpyxl.styles import Font, Alignment, PatternFill
+        from openpyxl.utils import get_column_letter
 
-        writer.writerow([f"Attendance Report — {month_name} {year}", ""])
-        writer.writerow([])
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = f"Attendance {month_name} {year}"
+
+        ws.append([f"Attendance Report — {month_name} {year}"])
+        ws.append([])
 
         fixed_headers   = ["Emp Code", "Full Name", "Designation", "Department"]
         day_headers     = [f"{d.day:02d} {d.strftime('%a')}" for d in all_dates]
         summary_headers = ["Present", "WFH", "Half Day", "On Leave", "Absent", "Holidays", "Working Hrs"]
-        writer.writerow(fixed_headers + day_headers + summary_headers)
+        headers = fixed_headers + day_headers + summary_headers
+        ws.append(headers)
 
+        header_font = Font(bold=True)
+        center_align = Alignment(horizontal="center", vertical="center")
+        left_align = Alignment(horizontal="left", vertical="center")
+
+        for col_num, header_val in enumerate(headers, 1):
+            cell = ws.cell(row=3, column=col_num)
+            cell.font = header_font
+            if col_num > 4 and col_num <= 4 + len(day_headers):
+                cell.alignment = center_align
+            else:
+                cell.alignment = left_align
+
+        colors = {
+            "PRESENT": "dcfce7",
+            "WFH": "dbeafe",
+            "HALF_DAY": "fef3c7",
+            "ON_LEAVE": "f3e8ff",
+            "ABSENT": "fee2e2",
+            "HOLIDAY": "ffedd5",
+            "WEEKEND": "f1f5f9",
+        }
+        fills = {k: PatternFill(start_color=v, end_color=v, fill_type="solid") for k,v in colors.items()}
+
+        row_idx = 4
         for emp in employees:
             desig = emp.designation_ref.name if emp.designation_ref_id else (emp.designation or "")
             dept  = emp.department_ref.name  if emp.department_ref_id  else (emp.department  or "")
 
             cnt = {k: 0 for k in ("present", "wfh", "half_day", "on_leave", "absent", "holiday")}
             total_working_hrs = 0.0
-            day_cells = []
 
-            for d in all_dates:
+            ws.cell(row=row_idx, column=1, value=emp.employee_code).alignment = left_align
+            ws.cell(row=row_idx, column=2, value=emp.full_name).alignment = left_align
+            ws.cell(row=row_idx, column=3, value=desig).alignment = left_align
+            ws.cell(row=row_idx, column=4, value=dept).alignment = left_align
+
+            for i, d in enumerate(all_dates):
                 rec = rec_map.get((str(emp.id), d))
                 if rec:
                     stat = rec.status
@@ -686,24 +719,52 @@ class AttendanceExportView(APIView):
                 stat_key = stat.lower()
                 if stat_key in cnt:
                     cnt[stat_key] += 1
-                day_cells.append(code)
+
+                col_num = 5 + i
+                cell = ws.cell(row=row_idx, column=col_num, value=code)
+                cell.alignment = center_align
+                if stat in fills:
+                    cell.fill = fills[stat]
 
             summary_cells = [
                 cnt["present"], cnt["wfh"], cnt["half_day"],
                 cnt["on_leave"], cnt["absent"], cnt["holiday"],
                 round(total_working_hrs, 2),
             ]
-            writer.writerow([emp.employee_code, emp.full_name, desig, dept] + day_cells + summary_cells)
+            for j, val in enumerate(summary_cells):
+                col_num = 5 + len(all_dates) + j
+                cell = ws.cell(row=row_idx, column=col_num, value=val)
+                cell.alignment = center_align
 
-        writer.writerow([])
-        writer.writerow(["Legend:",
+            row_idx += 1
+
+        ws.column_dimensions['A'].width = 12
+        ws.column_dimensions['B'].width = 25
+        ws.column_dimensions['C'].width = 20
+        ws.column_dimensions['D'].width = 20
+        for i in range(len(all_dates)):
+            ws.column_dimensions[get_column_letter(5 + i)].width = 9
+        for j in range(len(summary_headers)):
+            ws.column_dimensions[get_column_letter(5 + len(all_dates) + j)].width = 12
+
+        row_idx += 1
+        ws.cell(row=row_idx, column=1, value="Legend:").font = header_font
+        legend = [
             "P=Present", "WFH=Work From Home", "HD=Half Day",
-            "OL=On Leave", "HOL=Holiday", "—=Weekend", "ABS=Absent",
-        ])
+            "OL=On Leave", "HOL=Holiday", "—=Weekend", "ABS=Absent"
+        ]
+        for idx, leg_item in enumerate(legend):
+            ws.cell(row=row_idx + 1 + idx, column=1, value=leg_item)
 
+        output = io.BytesIO()
+        wb.save(output)
+        
         ts       = today.strftime("%Y_%m_%d_%H%M")
-        filename = f"attendance_report_{year}_{str(month).zfill(2)}_{ts}.csv"
-        response = HttpResponse(output.getvalue(), content_type="text/csv; charset=utf-8")
+        filename = f"attendance_report_{year}_{str(month).zfill(2)}_{ts}.xlsx"
+        response = HttpResponse(
+            output.getvalue(), 
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
 
