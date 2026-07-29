@@ -74,12 +74,15 @@ def validate_milestone_amount(
     amount = _dec(amount)
     if amount < 0:
         raise ValueError("Milestone amount cannot be negative.")
+    budget = _dec(project.budget)
+    if budget <= 0:
+        return
     summary = project_budget_summary(project, exclude_milestone_id=exclude_milestone_id)
     remaining = _dec(summary["milestone_remaining"])
-    if amount > remaining:
+    if amount > remaining + Decimal("0.01"):
         raise ValueError(
             f"Milestone amount ₹{amount:,.2f} exceeds remaining planned budget "
-            f"₹{remaining:,.2f} (project budget ₹{_dec(project.budget):,.2f})."
+            f"₹{remaining:,.2f} (project budget ₹{budget:,.2f})."
         )
 
 
@@ -92,12 +95,15 @@ def validate_invoice_amount(
     amount = _dec(amount)
     if amount <= 0:
         raise ValueError("Invoice amount must be positive.")
+    budget = _dec(project.budget)
+    if budget <= 0:
+        return
     summary = project_budget_summary(project, exclude_invoice_id=exclude_invoice_id)
     remaining = _dec(summary["invoice_remaining"])
-    if amount > remaining:
+    if amount > remaining + Decimal("0.01"):
         raise ValueError(
             f"Invoice amount ₹{amount:,.2f} exceeds remaining billable budget "
-            f"₹{remaining:,.2f} (project budget ₹{_dec(project.budget):,.2f})."
+            f"₹{remaining:,.2f} (project budget ₹{budget:,.2f})."
         )
 
 
