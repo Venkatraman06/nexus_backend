@@ -881,11 +881,32 @@ class HRMSDashboardView(APIView):
         for rec in today_records.values("status").annotate(n=Count("id")):
             if rec["status"] in att_counts:
                 att_counts[rec["status"]] = rec["n"]
+
+        # Account for employees on approved leave today if attendance record is not yet marked or marked absent/not marked
+        approved_leave_emp_ids = set(LeaveRequest.objects.filter(
+            status=LeaveRequestStatus.APPROVED,
+            start_date__lte=today,
+            end_date__gte=today,
+            is_deleted=False
+        ).values_list("employee_id", flat=True))
+
+        for emp_id in approved_leave_emp_ids:
+            rec = today_records.filter(employee_id=emp_id).first()
+            if not rec:
+                att_counts["ON_LEAVE"] += 1
+            elif rec.status != "ON_LEAVE" and rec.status not in ("PRESENT", "WFH"):
+                att_counts["ON_LEAVE"] += 1
+                if att_counts.get(rec.status, 0) > 0:
+                    att_counts[rec.status] -= 1
+
         marked_today = today_records.count()
         not_marked_today = max(0, total_active - marked_today)
+
+        # Working headcount excludes employees on approved leave
+        working_headcount = max(1, total_active - att_counts["ON_LEAVE"])
         attendance_rate = round(
-            ((att_counts["PRESENT"] + att_counts["WFH"]) / total_active * 100) if total_active else 0, 1
-        )
+            min(100.0, ((att_counts["PRESENT"] + att_counts["WFH"]) / working_headcount * 100)), 1
+        ) if total_active else 0.0
 
         # ── Leave requests ────────────────────────────────────────────
         lr_qs = LeaveRequest.objects.filter(is_deleted=False)

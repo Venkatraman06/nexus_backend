@@ -1084,6 +1084,24 @@ class LeaveReviewView(APIView):
                 balance.used_days = curr_used + days_add
                 balance.save(update_fields=["used_days"])
 
+            # ── Auto-create or update AttendanceRecords as ON_LEAVE for the leave period ──
+            if leave.start_date and leave.end_date:
+                curr_d = leave.start_date
+                while curr_d <= leave.end_date:
+                    rec, _ = AttendanceRecord.objects.get_or_create(
+                        employee=leave.employee,
+                        date=curr_d,
+                        defaults={
+                            "status": AttendanceStatus.ON_LEAVE,
+                            "notes": f"Leave: {leave.leave_type.name if leave.leave_type else 'Approved Leave'}"
+                        }
+                    )
+                    if rec.status not in (AttendanceStatus.PRESENT, AttendanceStatus.WFH):
+                        rec.status = AttendanceStatus.ON_LEAVE
+                        rec.notes  = f"Leave: {leave.leave_type.name if leave.leave_type else 'Approved Leave'}"
+                        rec.save(update_fields=["status", "notes"])
+                    curr_d += timedelta(days=1)
+
         # Send notification about the review decision
         try:
             from apps.notifications.constants import EventType, ReferenceType
