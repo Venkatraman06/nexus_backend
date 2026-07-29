@@ -373,7 +373,7 @@ class PaymentCreateSerializer(serializers.ModelSerializer):
                     })
 
                 # Check project matches if payment project is specified
-                if project and invoice.project_id != project.id:
+                if project and invoice.project_id and invoice.project_id != project.id:
                     raise serializers.ValidationError({
                         "allocations": f"Allocation #{idx+1}: Invoice {invoice.invoice_number} belongs to project '{invoice.project.name if invoice.project else None}', but payment is restricted to project '{project.name}'."
                     })
