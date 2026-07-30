@@ -2,6 +2,12 @@
   "Admin": [
     "*"
   ],
+  "Co-Founder": [
+    "*"
+  ],
+  "CTO": [
+    "*"
+  ],
   "CEO/Founder": [
     "pmt.dashboard.own.view",
     "pmt.dashboard.hrms.view",

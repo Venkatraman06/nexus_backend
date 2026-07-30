@@ -55,6 +55,12 @@ def _fetch_employee(kc, access_token):
                 token_info = jwt.decode(access_token, options={"verify_signature": False})
         user_id = token_info.get("sub")
         if not user_id:
+            try:
+                user_info = kc.userinfo(access_token)
+                user_id = user_info.get("sub")
+            except Exception:
+                pass
+        if not user_id:
             return None, None
         emp = Employee.base_objects.filter(keycloak_id=user_id).first()
         if emp:

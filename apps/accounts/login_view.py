@@ -57,6 +57,9 @@ class LoginView(APIView):
         try:
             token_info = kc.introspect(access_token)
             user_id = token_info.get("sub")
+            if not user_id:
+                user_info = kc.userinfo(access_token)
+                user_id = user_info.get("sub")
         except Exception:
             pass
 

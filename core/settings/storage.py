@@ -1,4 +1,5 @@
 from decouple import config
+from whitenoise.storage import CompressedStaticFilesStorage
 
 # In development (DEBUG=True), use local filesystem storage for uploaded files.
 # In production (DEBUG=False), use MinIO/S3.
@@ -11,7 +12,7 @@ if _use_local:
             "BACKEND": "django.core.files.storage.FileSystemStorage",
         },
         "staticfiles": {
-            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
         },
     }
 else:
@@ -26,6 +27,6 @@ else:
             },
         },
         "staticfiles": {
-            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
         },
     }

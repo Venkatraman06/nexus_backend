@@ -26,8 +26,12 @@ logger = logging.getLogger(__name__)
 KEYCLOAK_DEFAULT_GROUPS = [
     "Admin",
     "CEO/Founder",
+    "Co-Founder",
+    "CTO",
     "HR Admin",
+    "HR & Admin",
     "PM/Solution Architect",
+    "Project Manager",
     "Employee",
     "Finance Team",
     "Sales/Marketing Team",

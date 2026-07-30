@@ -42,6 +42,13 @@ class KeycloakAuthentication(BaseAuthentication):
 
             user_id = token_info.get("sub")
             if not user_id:
+                try:
+                    user_info = kc.userinfo(access_token)
+                    user_id = user_info.get("sub")
+                except Exception as e:
+                    logger.error("Userinfo fetch failed in Auth: %s", e)
+                    pass
+            if not user_id:
                 raise AuthenticationFailed("Token missing subject claim")
 
             user_info = token_info
