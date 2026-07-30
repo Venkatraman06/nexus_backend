@@ -220,7 +220,43 @@ DEFAULT_TEMPLATES = [
         "severity": NotificationSeverity.INFO,
         "default_action_url": "/chat?conversation={conversation_id}",
     },
+    {
+        "event_type": EventType.REIMBURSEMENT_SUBMITTED,
+        "title_template": "Reimbursement Claim Submitted: {claim_number}",
+        "message_template": "{employee_name} submitted claim \"{title}\" for ₹{amount}.",
+        "severity": NotificationSeverity.INFO,
+        "default_action_url": "/expenses",
+    },
+    {
+        "event_type": EventType.REIMBURSEMENT_APPROVED,
+        "title_template": "Reimbursement Claim Approved: {claim_number}",
+        "message_template": "Your claim \"{title}\" for ₹{amount} has been approved.",
+        "severity": NotificationSeverity.INFO,
+        "default_action_url": "/expenses",
+    },
+    {
+        "event_type": EventType.REIMBURSEMENT_REJECTED,
+        "title_template": "Reimbursement Claim Rejected: {claim_number}",
+        "message_template": "Your claim \"{title}\" was rejected: {comments}",
+        "severity": NotificationSeverity.WARNING,
+        "default_action_url": "/expenses",
+    },
+    {
+        "event_type": EventType.REIMBURSEMENT_INFO_REQUESTED,
+        "title_template": "Additional Info Requested: {claim_number}",
+        "message_template": "Reviewer requested additional info for \"{title}\": {comments}",
+        "severity": NotificationSeverity.WARNING,
+        "default_action_url": "/expenses",
+    },
+    {
+        "event_type": EventType.REIMBURSEMENT_PAID,
+        "title_template": "Reimbursement Paid: {claim_number}",
+        "message_template": "Your claim \"{title}\" for ₹{amount} has been marked as Paid.",
+        "severity": NotificationSeverity.INFO,
+        "default_action_url": "/expenses",
+    },
 ]
+
 
 
 def sync_templates():

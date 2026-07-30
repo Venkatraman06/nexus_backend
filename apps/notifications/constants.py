@@ -33,6 +33,7 @@ class ReferenceType(models.TextChoices):
     SOCIAL_POST = "social_post", "Social Post"
     TODO = "todo", "To-Do"
     CHAT_MESSAGE = "chat_message", "Chat Message"
+    REIMBURSEMENT = "reimbursement", "Reimbursement Claim"
 
 
 class EventType(models.TextChoices):
@@ -67,6 +68,12 @@ class EventType(models.TextChoices):
     TODO_COMMENTED = "todo.commented", "To-Do Commented"
     TODO_UPDATED = "todo.updated", "To-Do Updated"
     CHAT_MESSAGE_NEW = "chat.message.new", "New Chat Message"
+    REIMBURSEMENT_SUBMITTED = "reimbursement.submitted", "Reimbursement Submitted"
+    REIMBURSEMENT_APPROVED  = "reimbursement.approved", "Reimbursement Approved"
+    REIMBURSEMENT_REJECTED  = "reimbursement.rejected", "Reimbursement Rejected"
+    REIMBURSEMENT_INFO_REQUESTED = "reimbursement.info_requested", "Reimbursement Info Requested"
+    REIMBURSEMENT_PAID      = "reimbursement.paid", "Reimbursement Paid"
+
 
 
 # Channels enabled today — extend without changing call sites.

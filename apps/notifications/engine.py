@@ -175,7 +175,19 @@ class NotificationEngine:
             # Recipients already specified in event.recipient_ids
             return []
 
+        if et == "reimbursement.submitted":
+            # Send notification to HR / Admin / Finance team
+            return exclude_actor(
+                unique_employees(list(hr_employees()), list(finance_employees()), list(managers_and_pmo())),
+                event.actor_id,
+            )
+
+        if et in ("reimbursement.approved", "reimbursement.rejected", "reimbursement.info_requested", "reimbursement.paid"):
+            eid = payload.get("employee_id")
+            return list(Employee.objects.filter(id=eid, is_active=True, is_deleted=False)) if eid else []
+
         return []
+
 
     @classmethod
     @transaction.atomic

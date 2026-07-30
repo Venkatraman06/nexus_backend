@@ -259,10 +259,19 @@ class EmployeeReimbursementViewSet(BaseModelViewSet):
         elif user.keycloak_group:
             group_str = str(user.keycloak_group).lower()
 
+        dept_str = (user.department or "").lower()
+        if getattr(user, "department_ref", None) and user.department_ref.name:
+            dept_str += " " + user.department_ref.name.lower()
+
+        user_perms = getattr(self.request, "user_permissions", [])
+
         is_hr_or_admin = (
             user.is_superuser
             or user.is_staff
             or any(g in group_str for g in ["admin", "hr", "ceo", "finance"])
+            or any(d in dept_str for d in ["hr", "human resource", "finance", "accounts", "admin"])
+            or "pmt.crm.expense.view" in user_perms
+            or "pmt.crm.expense.approve" in user_perms
         )
         if not is_hr_or_admin:
             qs = qs.filter(employee=user)
@@ -346,6 +355,27 @@ class EmployeeReimbursementViewSet(BaseModelViewSet):
         claim.status = ReimbursementStatus.SUBMITTED
         claim.save(update_fields=["status"])
         self._log_status_change(claim, old_status, ReimbursementStatus.SUBMITTED, request.user, "Submitted for review")
+
+        # Publish notification to HR & Finance team
+        try:
+            from apps.notifications.publisher import publish_event
+            from apps.notifications.constants import EventType, ReferenceType
+            publish_event(
+                event_type=EventType.REIMBURSEMENT_SUBMITTED,
+                reference_type=ReferenceType.REIMBURSEMENT,
+                reference_id=str(claim.id),
+                actor_id=str(request.user.id),
+                payload={
+                    "claim_number": claim.claim_number,
+                    "title": claim.title,
+                    "amount": float(claim.amount_claimed),
+                    "employee_name": claim.employee.full_name or claim.employee.username,
+                },
+                action_url="/expenses",
+            )
+        except Exception:
+            pass
+
         return Response(EmployeeReimbursementDetailSerializer(claim).data)
 
     @action(detail=True, methods=["post"], url_path="review")
