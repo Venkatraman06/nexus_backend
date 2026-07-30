@@ -409,3 +409,9 @@ class ReimbursementConfigViewSet(BaseModelViewSet):
     queryset           = ReimbursementConfig.objects.select_related("reviewer", "approver").all()
     filterset_fields   = ["is_active"]
     search_fields      = ["name"]
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+    def perform_update(self, serializer):
+        serializer.save()
