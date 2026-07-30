@@ -464,6 +464,9 @@ class EmployeeReimbursementViewSet(BaseModelViewSet):
             file_size=file_obj.size,
             content_type=file_obj.content_type or "application/octet-stream",
             uploaded_by=request.user,
+            created_by=request.user,
+            updated_by=request.user,
         )
         return Response(ReimbursementAttachmentSerializer(att).data, status=status.HTTP_201_CREATED)
+
 
