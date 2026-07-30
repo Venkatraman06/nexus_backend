@@ -503,10 +503,6 @@ class OnboardSetPasswordView(APIView):
 # 2FA (Google / Microsoft Authenticator TOTP) API Views
 # ──────────────────────────────────────────────────────────
 
-import base64
-import io
-import pyotp
-import qrcode
 from apps.common.permissions import IsAuthenticated
 
 class TOTPSetupView(APIView):
@@ -514,6 +510,17 @@ class TOTPSetupView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        try:
+            import base64
+            import io
+            import pyotp
+            import qrcode
+        except ImportError:
+            return Response(
+                {"error": "2FA packages (pyotp / qrcode) are not installed on server."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
         emp = request.user
         secret = emp.totp_secret or pyotp.random_base32()
         
@@ -546,6 +553,14 @@ class TOTPVerifyEnableView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        try:
+            import pyotp
+        except ImportError:
+            return Response(
+                {"error": "2FA package (pyotp) is not installed on server."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
         emp = request.user
         otp_code = (request.data.get("otp") or "").strip()
         secret = (request.data.get("secret") or emp.totp_secret or "").strip()
