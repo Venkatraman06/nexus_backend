@@ -183,17 +183,13 @@ class Employee(AbstractBaseUser, PermissionsMixin):
     @classmethod
     def build_hierarchy_ordered_list(cls, queryset):
         """
-        Builds a hierarchy-aware ordered list of employee dicts or objects from a queryset.
-        - Managers before direct reports
-        - Hierarchy root sorting based on designation seniority, joining_date, employee_code
-        - Computes absolute level (depth from top-level manager) for visual tree display
-        - Cycle detection & duplicate prevention
+        Builds a hierarchy-aware ordered list of employees based strictly on designation level seniority.
+        CEO (0) -> CTO (1) -> Co-founder (2) -> Director/VP (3) -> Manager (4) -> Lead (5) -> Senior (6) -> Employee (7) -> Intern/Trainee (8)
         """
         employees = list(queryset)
         if not employees:
             return []
 
-        # 1. Fetch full employee manager mapping from DB for active employees to compute absolute depth levels
         all_emp_mgrs = dict(
             cls.objects.filter(is_deleted=False, is_active=True).values_list("id", "manager_id")
         )
@@ -208,54 +204,17 @@ class Employee(AbstractBaseUser, PermissionsMixin):
                 level += 1
             return level
 
-        emp_map = {str(e.id): e for e in employees}
-        children_map = {}
-        top_roots = []
+        for emp in employees:
+            emp._hierarchy_level = get_absolute_level(emp.id)
 
-        for e in employees:
-            mgr_id = str(e.manager_id) if e.manager_id else None
-            # If manager is present in current filtered dataset, group under manager
-            if mgr_id and mgr_id in emp_map:
-                children_map.setdefault(mgr_id, []).append(e)
-            else:
-                top_roots.append(e)
-
-        # Sort nodes by seniority key
         def sort_key(emp):
             s_score = cls.get_designation_seniority(emp)
-            j_date = emp.joining_date if emp.joining_date else datetime.date.max
             e_code = emp.employee_code or ""
-            return (s_score, j_date, e_code, emp.first_name, emp.last_name)
+            j_date = emp.joining_date if emp.joining_date else datetime.date.max
+            return (s_score, e_code, j_date, emp.first_name, emp.last_name)
 
-        top_roots.sort(key=sort_key)
-        for mgr_id in children_map:
-            children_map[mgr_id].sort(key=sort_key)
-
-        result = []
-        visited = set()
-
-        def dfs(emp):
-            emp_id = str(emp.id)
-            if emp_id in visited:
-                return
-            visited.add(emp_id)
-            emp._hierarchy_level = get_absolute_level(emp.id)
-            result.append(emp)
-
-            for child in children_map.get(emp_id, []):
-                dfs(child)
-
-        for root in top_roots:
-            dfs(root)
-
-        # Handle any orphaned nodes (cycles, etc.) that were not visited
-        remaining = [e for e in employees if str(e.id) not in visited]
-        if remaining:
-            remaining.sort(key=sort_key)
-            for r in remaining:
-                dfs(r)
-
-        return result
+        employees.sort(key=sort_key)
+        return employees
 
     def save(self, *args, **kwargs):
         if self.status == EmployeeStatus.ACTIVE:
