@@ -35,13 +35,15 @@ class CompanyExpenseViewSet(BaseModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         p = self.request.query_params
-        if p.get("category"):    qs = qs.filter(category=p["category"])
-        if p.get("status"):      qs = qs.filter(status=p["status"])
-        if p.get("paid_by"):     qs = qs.filter(paid_by_id=p["paid_by"])
-        if p.get("project"):     qs = qs.filter(project_id=p["project"])
-        if p.get("client"):      qs = qs.filter(client_id=p["client"])
-        if p.get("date_from"):   qs = qs.filter(date__gte=p["date_from"])
-        if p.get("date_to"):     qs = qs.filter(date__lte=p["date_to"])
+        if p.get("category"):        qs = qs.filter(category=p["category"])
+        if p.get("status"):          qs = qs.filter(status=p["status"])
+        if p.get("paid_by"):         qs = qs.filter(paid_by_id=p["paid_by"])
+        if p.get("department"):      qs = qs.filter(Q(paid_by__department_ref_id=p["department"]) | Q(paid_by__department=p["department"]))
+        if p.get("department_ref"):  qs = qs.filter(paid_by__department_ref_id=p["department_ref"])
+        if p.get("project"):         qs = qs.filter(project_id=p["project"])
+        if p.get("client"):          qs = qs.filter(client_id=p["client"])
+        if p.get("date_from"):       qs = qs.filter(date__gte=p["date_from"])
+        if p.get("date_to"):         qs = qs.filter(date__lte=p["date_to"])
         if p.get("search"):
             q = p["search"]
             qs = qs.filter(
@@ -165,8 +167,23 @@ class CompanyExpenseViewSet(BaseModelViewSet):
             ).order_by("-amount")
         )
 
+        # By department
+        by_dept = list(
+            qs.values(
+                dept_id=models.F("paid_by__department_ref__id"),
+                dept_name=models.F("paid_by__department_ref__name")
+            ).annotate(
+                count=Count("id"), amount=Sum("amount")
+            ).order_by("-amount")
+        )
+
         # Pending approval
         pending = qs.filter(status=ExpenseStatus.SUBMITTED).aggregate(
+            count=Count("id"), amount=Sum("amount")
+        )
+
+        # Approved & Reimbursed
+        approved = qs.filter(status__in=[ExpenseStatus.APPROVED, ExpenseStatus.REIMBURSED]).aggregate(
             count=Count("id"), amount=Sum("amount")
         )
 
@@ -177,8 +194,21 @@ class CompanyExpenseViewSet(BaseModelViewSet):
                 "count":  pending["count"],
                 "amount": float(pending["amount"] or 0),
             },
+            "approved_reimbursed": {
+                "count":  approved["count"],
+                "amount": float(approved["amount"] or 0),
+            },
             "by_category": [
                 {**r, "amount": float(r["amount"] or 0)}
                 for r in by_cat
             ],
+            "by_department": [
+                {
+                    "department_id": str(r["dept_id"]) if r["dept_id"] else None,
+                    "department_name": r["dept_name"] or "Unassigned",
+                    "count": r["count"],
+                    "amount": float(r["amount"] or 0),
+                }
+                for r in by_dept
+            ]
         })
