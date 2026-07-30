@@ -426,6 +426,7 @@ class EmployeeReimbursementViewSet(BaseModelViewSet):
 
         # Automatically create or link to Company Expense record on Approval
         if not claim.linked_expense:
+            from apps.expenses.models import ExpenseAttachment
             expense = CompanyExpense.objects.create(
                 date=claim.expense_date,
                 category=claim.category,
@@ -436,12 +437,22 @@ class EmployeeReimbursementViewSet(BaseModelViewSet):
                 client=claim.client,
                 payment_mode=claim.payment_method,
                 reference_number=claim.claim_number,
-                attachment=claim.attachment,
+                attachment=claim.attachments.first().file if claim.attachments.exists() else None,
                 status=ExpenseStatus.APPROVED,
                 approved_by=request.user,
                 approved_at=timezone.now(),
                 notes=f"Auto-generated expense entry from approved reimbursement claim {claim.claim_number}.",
             )
+            # Copy attachments
+            for att in claim.attachments.all():
+                ExpenseAttachment.objects.create(
+                    expense=expense,
+                    file=att.file,
+                    original_name=att.original_name,
+                    file_size=att.file_size,
+                    content_type=att.content_type,
+                    uploaded_by=att.uploaded_by
+                )
             claim.linked_expense = expense
 
         claim.save(update_fields=["status", "reviewed_by", "reviewed_at", "review_comments", "linked_expense"])
