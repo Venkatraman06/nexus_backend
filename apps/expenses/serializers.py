@@ -144,7 +144,7 @@ class EmployeeReimbursementCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = EmployeeReimbursement
         fields = [
-            "title", "category", "description", "project", "client",
+            "id", "title", "category", "description", "project", "client",
             "expense_date", "amount_claimed", "payment_method",
             "attachment", "additional_notes",
         ]
