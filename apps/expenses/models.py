@@ -98,3 +98,15 @@ class CompanyExpense(BaseModel):
         if not self.expense_number:
             self.expense_number = self.generate_number()
         super().save(*args, **kwargs)
+
+class ExpenseAttachment(BaseModel):
+    expense = models.ForeignKey(CompanyExpense, on_delete=models.CASCADE, related_name="attachments")
+    file = models.FileField(upload_to="expenses/attachments/")
+    original_name = models.CharField(max_length=255)
+    file_size = models.PositiveIntegerField()
+    content_type = models.CharField(max_length=100)
+    uploaded_by = models.ForeignKey("accounts.Employee", on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        db_table = "crm_expense_attachment"
+        ordering = ["-created_at"]
