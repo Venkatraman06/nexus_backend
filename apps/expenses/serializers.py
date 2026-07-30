@@ -66,7 +66,7 @@ class ExpenseCreateSerializer(serializers.ModelSerializer):
         model = CompanyExpense
         fields = [
             "date", "category", "description", "amount",
-            "paid_by", "project", "client",
+            "paid_by", "approved_by", "project", "client",
             "payment_mode", "reference_number",
             "attachment", "notes",
         ]
