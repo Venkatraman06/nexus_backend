@@ -142,28 +142,43 @@ class Employee(AbstractBaseUser, PermissionsMixin):
     @staticmethod
     def get_designation_seniority(emp) -> int:
         """
-        Lower score = higher seniority.
-        Default mapping: CEO (0) -> Director (1) -> Manager (2) -> Lead (3) -> Senior (4) -> Employee (5) -> Intern (6)
+        Lower score = higher designation seniority.
+        Mapping:
+        0: CEO / Founder / Chief Executive
+        1: CTO / Chief Technology Officer
+        2: Co-founder / Co-Founder
+        3: Director / VP / Vice President / C-Level Executives (CFO, COO, CMO, etc.)
+        4: General Manager / Senior Manager / Manager / Head of Department
+        5: Assistant Manager / Team Lead / Architect / Tech Lead / Supervisor
+        6: Senior Executive / Senior Specialist / Senior Employee / Principal
+        7: Executive / Associate / Specialist / Staff
+        8: Junior Associate / Assistant / Trainee / Intern
         """
         desig_name = (
             emp.designation_ref.name
             if getattr(emp, "designation_ref", None)
             else (getattr(emp, "designation", "") or "")
-        ).lower()
+        ).lower().strip()
 
-        if "ceo" in desig_name or "founder" in desig_name or "president" in desig_name:
+        if "ceo" in desig_name or "chief executive" in desig_name:
             return 0
-        if "director" in desig_name or "vp" in desig_name or "vice president" in desig_name or "c-level" in desig_name:
+        if "cto" in desig_name or "chief technology" in desig_name:
             return 1
-        if "general manager" in desig_name or "senior manager" in desig_name or "manager" in desig_name or "head" in desig_name:
+        if "co-founder" in desig_name or "cofounder" in desig_name or "co founder" in desig_name:
             return 2
-        if "lead" in desig_name or "architect" in desig_name or "supervisor" in desig_name:
+        if "founder" in desig_name or "president" in desig_name:
+            return 0
+        if "director" in desig_name or "vp" in desig_name or "vice president" in desig_name or desig_name.startswith("c") and "official" in desig_name:
             return 3
-        if "senior" in desig_name or "sr" in desig_name or "principal" in desig_name:
+        if "general manager" in desig_name or "senior manager" in desig_name or "manager" in desig_name or "head" in desig_name:
             return 4
-        if "intern" in desig_name or "trainee" in desig_name:
+        if "lead" in desig_name or "architect" in desig_name or "supervisor" in desig_name or "assistant manager" in desig_name:
+            return 5
+        if "senior" in desig_name or "sr" in desig_name or "principal" in desig_name:
             return 6
-        return 5
+        if "intern" in desig_name or "trainee" in desig_name or "junior" in desig_name or "jr" in desig_name:
+            return 8
+        return 7
 
     @classmethod
     def build_hierarchy_ordered_list(cls, queryset):
