@@ -172,6 +172,8 @@ class Employee(AbstractBaseUser, PermissionsMixin):
             return 3
         if "general manager" in desig_name or "senior manager" in desig_name or "manager" in desig_name or "head" in desig_name:
             return 4
+        if "executive assistant" in desig_name or "ea" in desig_name or "pa" in desig_name:
+            return 5.5
         if "lead" in desig_name or "architect" in desig_name or "supervisor" in desig_name or "assistant manager" in desig_name:
             return 5
         if "senior" in desig_name or "sr" in desig_name or "principal" in desig_name:
