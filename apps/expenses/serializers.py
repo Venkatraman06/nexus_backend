@@ -65,11 +65,12 @@ class ExpenseCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = CompanyExpense
         fields = [
-            "date", "category", "description", "amount",
+            "id", "date", "category", "description", "amount",
             "paid_by", "project", "client",
             "payment_mode", "reference_number",
             "attachment", "notes",
         ]
+        read_only_fields = ["id"]
 
     def validate_amount(self, value):
         if value <= 0:
