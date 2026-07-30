@@ -34,14 +34,20 @@ class PermissionResolver:
 
         key = _cache_key(user_id)
         cached = cache.get(key)
-        if isinstance(cached, list):
+        # Only use cache if it contains actual permissions (never serve stale empty list)
+        if isinstance(cached, list) and len(cached) > 0:
             return cached
 
         try:
             from packages.keycloak.services import KeycloakService
             permissions = KeycloakService().get_effective_user_permissions(user_id)
             result = list(_dedupe(permissions))
-            cache.set(key, result, timeout=_CACHE_TTL)
+            # Only cache non-empty results — empty means Keycloak roles aren't assigned yet
+            if result:
+                cache.set(key, result, timeout=_CACHE_TTL)
+            else:
+                # Short TTL so we retry Keycloak quickly
+                cache.set(key, result, timeout=30)
             return result
         except Exception as exc:
             logger.error("PermissionResolver failed for %s: %s", user_id, exc)
