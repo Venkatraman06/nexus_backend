@@ -410,6 +410,9 @@ class ReimbursementConfigViewSet(BaseModelViewSet):
     filterset_fields   = ["is_active"]
     search_fields      = ["name"]
 
+    def get_queryset(self):
+        return self.queryset
+
     def perform_create(self, serializer):
         serializer.save()
 
