@@ -171,12 +171,27 @@ class Employee(AbstractBaseUser, PermissionsMixin):
         Builds a hierarchy-aware ordered list of employee dicts or objects from a queryset.
         - Managers before direct reports
         - Hierarchy root sorting based on designation seniority, joining_date, employee_code
-        - Preserves hierarchy level / tree depth for UI indentation
+        - Computes absolute level (depth from top-level manager) for visual tree display
         - Cycle detection & duplicate prevention
         """
         employees = list(queryset)
         if not employees:
             return []
+
+        # 1. Fetch full employee manager mapping from DB for active employees to compute absolute depth levels
+        all_emp_mgrs = dict(
+            cls.objects.filter(is_deleted=False, is_active=True).values_list("id", "manager_id")
+        )
+
+        def get_absolute_level(emp_id):
+            level = 0
+            curr_id = emp_id
+            visited_ancestors = set()
+            while curr_id in all_emp_mgrs and all_emp_mgrs[curr_id] and all_emp_mgrs[curr_id] not in visited_ancestors:
+                visited_ancestors.add(curr_id)
+                curr_id = all_emp_mgrs[curr_id]
+                level += 1
+            return level
 
         emp_map = {str(e.id): e for e in employees}
         children_map = {}
@@ -184,7 +199,7 @@ class Employee(AbstractBaseUser, PermissionsMixin):
 
         for e in employees:
             mgr_id = str(e.manager_id) if e.manager_id else None
-            # If manager is in the current dataset, add as child of manager
+            # If manager is present in current filtered dataset, group under manager
             if mgr_id and mgr_id in emp_map:
                 children_map.setdefault(mgr_id, []).append(e)
             else:
@@ -204,26 +219,26 @@ class Employee(AbstractBaseUser, PermissionsMixin):
         result = []
         visited = set()
 
-        def dfs(emp, level):
+        def dfs(emp):
             emp_id = str(emp.id)
             if emp_id in visited:
                 return
             visited.add(emp_id)
-            emp._hierarchy_level = level
+            emp._hierarchy_level = get_absolute_level(emp.id)
             result.append(emp)
 
             for child in children_map.get(emp_id, []):
-                dfs(child, level + 1)
+                dfs(child)
 
         for root in top_roots:
-            dfs(root, 0)
+            dfs(root)
 
         # Handle any orphaned nodes (cycles, etc.) that were not visited
         remaining = [e for e in employees if str(e.id) not in visited]
         if remaining:
             remaining.sort(key=sort_key)
             for r in remaining:
-                dfs(r, 0)
+                dfs(r)
 
         return result
 
