@@ -21,6 +21,7 @@ class EmployeeListSerializer(serializers.ModelSerializer):
     employment_type_name = serializers.CharField(source="employment_type.name", read_only=True, default=None)
     shift_category_name  = serializers.CharField(source="shift_category.name",  read_only=True, default=None)
     manager_name         = serializers.CharField(source="manager.full_name",    read_only=True, default=None)
+    hierarchy_level      = serializers.SerializerMethodField()
 
     class Meta:
         model = Employee
@@ -40,7 +41,11 @@ class EmployeeListSerializer(serializers.ModelSerializer):
             "shift_applicable", "shift_category", "shift_category_name",
             "custom_shift_start", "custom_shift_end",
             "keycloak_group", "profile_picture", "created_at",
+            "hierarchy_level",
         ]
+
+    def get_hierarchy_level(self, obj):
+        return getattr(obj, "_hierarchy_level", 0)
 
 
 class EmployeeDetailSerializer(serializers.ModelSerializer):

@@ -1,3 +1,4 @@
+import datetime
 import uuid
 
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
@@ -137,6 +138,94 @@ class Employee(AbstractBaseUser, PermissionsMixin):
     @property
     def full_name(self):
         return f"{self.first_name} {self.last_name}".strip()
+
+    @staticmethod
+    def get_designation_seniority(emp) -> int:
+        """
+        Lower score = higher seniority.
+        Default mapping: CEO (0) -> Director (1) -> Manager (2) -> Lead (3) -> Senior (4) -> Employee (5) -> Intern (6)
+        """
+        desig_name = (
+            emp.designation_ref.name
+            if getattr(emp, "designation_ref", None)
+            else (getattr(emp, "designation", "") or "")
+        ).lower()
+
+        if "ceo" in desig_name or "founder" in desig_name or "president" in desig_name:
+            return 0
+        if "director" in desig_name or "vp" in desig_name or "vice president" in desig_name or "c-level" in desig_name:
+            return 1
+        if "general manager" in desig_name or "senior manager" in desig_name or "manager" in desig_name or "head" in desig_name:
+            return 2
+        if "lead" in desig_name or "architect" in desig_name or "supervisor" in desig_name:
+            return 3
+        if "senior" in desig_name or "sr" in desig_name or "principal" in desig_name:
+            return 4
+        if "intern" in desig_name or "trainee" in desig_name:
+            return 6
+        return 5
+
+    @classmethod
+    def build_hierarchy_ordered_list(cls, queryset):
+        """
+        Builds a hierarchy-aware ordered list of employee dicts or objects from a queryset.
+        - Managers before direct reports
+        - Hierarchy root sorting based on designation seniority, joining_date, employee_code
+        - Preserves hierarchy level / tree depth for UI indentation
+        - Cycle detection & duplicate prevention
+        """
+        employees = list(queryset)
+        if not employees:
+            return []
+
+        emp_map = {str(e.id): e for e in employees}
+        children_map = {}
+        top_roots = []
+
+        for e in employees:
+            mgr_id = str(e.manager_id) if e.manager_id else None
+            # If manager is in the current dataset, add as child of manager
+            if mgr_id and mgr_id in emp_map:
+                children_map.setdefault(mgr_id, []).append(e)
+            else:
+                top_roots.append(e)
+
+        # Sort nodes by seniority key
+        def sort_key(emp):
+            s_score = cls.get_designation_seniority(emp)
+            j_date = emp.joining_date if emp.joining_date else datetime.date.max
+            e_code = emp.employee_code or ""
+            return (s_score, j_date, e_code, emp.first_name, emp.last_name)
+
+        top_roots.sort(key=sort_key)
+        for mgr_id in children_map:
+            children_map[mgr_id].sort(key=sort_key)
+
+        result = []
+        visited = set()
+
+        def dfs(emp, level):
+            emp_id = str(emp.id)
+            if emp_id in visited:
+                return
+            visited.add(emp_id)
+            emp._hierarchy_level = level
+            result.append(emp)
+
+            for child in children_map.get(emp_id, []):
+                dfs(child, level + 1)
+
+        for root in top_roots:
+            dfs(root, 0)
+
+        # Handle any orphaned nodes (cycles, etc.) that were not visited
+        remaining = [e for e in employees if str(e.id) not in visited]
+        if remaining:
+            remaining.sort(key=sort_key)
+            for r in remaining:
+                dfs(r, 0)
+
+        return result
 
     def save(self, *args, **kwargs):
         if self.status == EmployeeStatus.ACTIVE:

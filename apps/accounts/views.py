@@ -84,7 +84,7 @@ class KeycloakGroupsView(APIView):
 
 class EmployeeViewSet(BaseModelViewSet):
     queryset = Employee.objects.filter(is_deleted=False).select_related(
-        "designation_ref", "department_ref", "location", "grade", "employment_type"
+        "designation_ref", "department_ref", "location", "grade", "employment_type", "manager"
     )
     permission_classes = [IsAuthenticated, HasKeycloakPermission]
     ordering_fields = ["employee_code", "first_name", "last_name", "created_at", "status"]
@@ -106,6 +106,29 @@ class EmployeeViewSet(BaseModelViewSet):
         if self.action in ["update", "partial_update"]:
             return EmployeeUpdateSerializer
         return EmployeeListSerializer
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        # If user explicitly requested custom field ordering (other than standard hierarchy ordering)
+        ordering_param = request.query_params.get("ordering")
+        if ordering_param and ordering_param not in ("hierarchy", "employee_code", "-employee_code", ""):
+            page = self.paginate_queryset(queryset)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
+            serializer = self.get_serializer(queryset, many=True)
+            return Response(serializer.data)
+
+        # Hierarchy-aware ordering
+        hierarchy_ordered = Employee.build_hierarchy_ordered_list(queryset)
+        page = self.paginate_queryset(hierarchy_ordered)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(hierarchy_ordered, many=True)
+        return Response(serializer.data)
 
     @action(detail=True, methods=["get"], url_path="performance")
     def performance(self, request, pk=None):
