@@ -438,6 +438,13 @@ class MeView(APIView):
             if "pmt.dashboard.own.view" not in effective_perms:
                 effective_perms.append("pmt.dashboard.own.view")
 
+        # Translate pmt.* -> bms.* so the frontend PERMS constants match.
+        # The frontend uses bms.* permission strings throughout; Keycloak uses pmt.*
+        def _pmt_to_bms(perm: str) -> str:
+            return "bms." + perm[4:] if perm.startswith("pmt.") else perm
+
+        effective_perms = [_pmt_to_bms(p) for p in effective_perms]
+
         return Response({
             "id":               str(me.id),
             "username":         me.username,
