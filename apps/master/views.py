@@ -396,3 +396,30 @@ class WFHRequestAdminView(APIView):
             for r in qs.order_by("-created_at")
         ]
         return Response({"results": data, "pending_count": pending_count})
+
+
+from .models import ReimbursementConfig
+from .serializers import ReimbursementConfigSerializer
+
+from apps.common.viewsets import BaseModelViewSet
+
+class ReimbursementConfigViewSet(BaseModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class   = ReimbursementConfigSerializer
+    queryset           = ReimbursementConfig.objects.select_related("reviewer", "approver").all()
+    filterset_fields   = ["is_active"]
+    search_fields      = ["name"]
+
+    def get_queryset(self):
+        return self.queryset
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+    def perform_update(self, serializer):
+        serializer.save()
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
