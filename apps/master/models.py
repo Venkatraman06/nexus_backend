@@ -194,3 +194,40 @@ class LeaveType(MasterBase):
         db_table = "hrms_leave_type"
         verbose_name = _("leave type")
         verbose_name_plural = _("leave types")
+
+
+class ReimbursementConfig(models.Model):
+    """
+    Master configuration for Employee Reimbursements approval.
+    Defines reviewer/approver employees.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=200, default="Standard Reimbursement Workflow")
+    reviewer = models.ForeignKey(
+        "accounts.Employee",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reimbursement_review_configs",
+        help_text="Employee responsible for reviewing/checking claims"
+    )
+    approver = models.ForeignKey(
+        "accounts.Employee",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reimbursement_approval_configs",
+        help_text="Employee responsible for approving claims and auto-generating company expenses"
+    )
+    is_active = models.BooleanField(default=True)
+    auto_approve_below = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Auto approve claims under this amount (0 = disabled)")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "master_reimbursement_config"
+        verbose_name = _("reimbursement config")
+        verbose_name_plural = _("reimbursement configs")
+
+    def __str__(self):
+        return f"{self.name} (Reviewer: {self.reviewer}, Approver: {self.approver})"

@@ -265,9 +265,18 @@ class EmployeeReimbursementViewSet(BaseModelViewSet):
 
         user_perms = getattr(self.request, "user_permissions", [])
 
+        # Check if user is configured as reviewer or approver in Master ReimbursementConfig
+        from apps.master.models import ReimbursementConfig
+        config = ReimbursementConfig.objects.filter(is_active=True).first()
+        is_configured_reviewer_or_approver = False
+        if config:
+            if config.reviewer_id == user.id or config.approver_id == user.id:
+                is_configured_reviewer_or_approver = True
+
         is_hr_or_admin = (
             user.is_superuser
             or user.is_staff
+            or is_configured_reviewer_or_approver
             or any(g in group_str for g in ["admin", "hr", "ceo", "finance"])
             or any(d in dept_str for d in ["hr", "human resource", "finance", "accounts", "admin"])
             or "pmt.crm.expense.view" in user_perms

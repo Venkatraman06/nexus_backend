@@ -396,3 +396,15 @@ class WFHRequestAdminView(APIView):
             for r in qs.order_by("-created_at")
         ]
         return Response({"results": data, "pending_count": pending_count})
+
+
+from .models import ReimbursementConfig
+from .serializers import ReimbursementConfigSerializer
+
+class ReimbursementConfigViewSet(ModelViewSet):
+    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    PERMISSION_MAP     = _HRMS_MASTER_PERMS
+    serializer_class   = ReimbursementConfigSerializer
+    queryset           = ReimbursementConfig.objects.select_related("reviewer", "approver").all()
+    filterset_fields   = ["is_active"]
+    search_fields      = ["name"]

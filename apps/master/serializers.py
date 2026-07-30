@@ -244,3 +244,19 @@ class HolidaySerializer(serializers.ModelSerializer):
                     pass
             data["year"] = date.year
         return data
+
+
+from .models import ReimbursementConfig
+
+class ReimbursementConfigSerializer(serializers.ModelSerializer):
+    reviewer_name = serializers.CharField(source="reviewer.full_name", read_only=True)
+    approver_name = serializers.CharField(source="approver.full_name", read_only=True)
+
+    class Meta:
+        model = ReimbursementConfig
+        fields = [
+            "id", "name", "reviewer", "reviewer_name",
+            "approver", "approver_name", "is_active",
+            "auto_approve_below", "created_at", "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]

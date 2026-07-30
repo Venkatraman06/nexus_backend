@@ -11,7 +11,7 @@ from .views import (
     BillingTypeViewSet, BillingTypeDropdownView,
     FollowupTypeViewSet, FollowupTypeDropdownView,
     LeaveTypeViewSet, LeavePolicyRuleViewSet, LeaveBalanceAssignView,
-    CreateMyLeaveTypeView, HolidayViewSet,
+    CreateMyLeaveTypeView, HolidayViewSet, ReimbursementConfigViewSet,
 )
 
 router = DefaultRouter()
@@ -30,6 +30,7 @@ router.register("master/leave/types",        LeaveTypeViewSet,         basename=
 router.register("master/leave/policy-rules", LeavePolicyRuleViewSet,   basename="leave-policy-rule")
 
 router.register("master/holidays", HolidayViewSet, basename="holiday")
+router.register("master/reimbursement-configs", ReimbursementConfigViewSet, basename="reimbursement-config")
 
 urlpatterns = router.urls + [
     path("master/dropdown/designations/",       DesignationDropdownView.as_view(),    name="dropdown-designations"),

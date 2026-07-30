@@ -176,9 +176,21 @@ class NotificationEngine:
             return []
 
         if et == "reimbursement.submitted":
-            # Send notification to HR / Admin / Finance team
+            # Send notification to configured Reviewer / Approver, as well as HR & Finance team
+            configured_recipients = []
+            try:
+                from apps.master.models import ReimbursementConfig
+                config = ReimbursementConfig.objects.filter(is_active=True).first()
+                if config:
+                    if config.reviewer and config.reviewer.is_active and not config.reviewer.is_deleted:
+                        configured_recipients.append(config.reviewer)
+                    if config.approver and config.approver.is_active and not config.approver.is_deleted:
+                        configured_recipients.append(config.approver)
+            except Exception:
+                pass
+
             return exclude_actor(
-                unique_employees(list(hr_employees()), list(finance_employees()), list(managers_and_pmo())),
+                unique_employees(configured_recipients, list(hr_employees()), list(finance_employees()), list(managers_and_pmo())),
                 event.actor_id,
             )
 
