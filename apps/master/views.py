@@ -401,9 +401,10 @@ class WFHRequestAdminView(APIView):
 from .models import ReimbursementConfig
 from .serializers import ReimbursementConfigSerializer
 
-class ReimbursementConfigViewSet(ModelViewSet):
-    permission_classes = [IsAuthenticated, HasKeycloakPermission]
-    PERMISSION_MAP     = _HRMS_MASTER_PERMS
+from apps.common.viewsets import BaseModelViewSet
+
+class ReimbursementConfigViewSet(BaseModelViewSet):
+    permission_classes = [IsAuthenticated]
     serializer_class   = ReimbursementConfigSerializer
     queryset           = ReimbursementConfig.objects.select_related("reviewer", "approver").all()
     filterset_fields   = ["is_active"]

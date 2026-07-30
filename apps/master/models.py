@@ -226,6 +226,7 @@ class ReimbursementConfig(models.Model):
 
     class Meta:
         db_table = "master_reimbursement_config"
+        ordering = ["-created_at"]
         verbose_name = _("reimbursement config")
         verbose_name_plural = _("reimbursement configs")
 
