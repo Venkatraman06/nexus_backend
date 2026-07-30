@@ -290,7 +290,12 @@ class EmployeeReimbursementViewSet(BaseModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        reimbursement = serializer.save(employee=self.request.user, status=ReimbursementStatus.DRAFT)
+        reimbursement = serializer.save(
+            employee=self.request.user,
+            created_by=self.request.user,
+            updated_by=self.request.user,
+            status=ReimbursementStatus.DRAFT,
+        )
         ReimbursementAuditLog.objects.create(
             reimbursement=reimbursement,
             from_status=ReimbursementStatus.DRAFT,
