@@ -19,7 +19,18 @@ from .serializers import (
 
 class CompanyExpenseViewSet(BaseModelViewSet):
     permission_classes = [IsAuthenticated, HasKeycloakPermission]
-    required_permission = "pmt.crm.expense.view"
+    PERMISSION_MAP = {
+        "list":             "pmt.crm.expense.view",
+        "retrieve":         "pmt.crm.expense.view",
+        "summary":          "pmt.crm.expense.view",
+        "create":           "pmt.crm.expense.create",
+        "update":           "pmt.crm.expense.update",
+        "partial_update":   "pmt.crm.expense.update",
+        "destroy":          "pmt.crm.expense.delete",
+        "approve":          "pmt.crm.expense.approve",
+        "reject":           "pmt.crm.expense.approve",
+        "reimburse":        "pmt.crm.expense.approve",
+    }
 
     queryset = CompanyExpense.objects.select_related(
         "paid_by", "approved_by", "project", "client"
@@ -242,10 +253,16 @@ class EmployeeReimbursementViewSet(BaseModelViewSet):
         p = self.request.query_params
 
         # Non-HR/Finance/Admin users only see their own reimbursement claims
+        group_str = ""
+        if isinstance(user.keycloak_group, list):
+            group_str = " ".join(str(g) for g in user.keycloak_group).lower()
+        elif user.keycloak_group:
+            group_str = str(user.keycloak_group).lower()
+
         is_hr_or_admin = (
             user.is_superuser
             or user.is_staff
-            or (user.keycloak_group and any(g in user.keycloak_group.lower() for g in ["admin", "hr", "ceo", "finance"]))
+            or any(g in group_str for g in ["admin", "hr", "ceo", "finance"])
         )
         if not is_hr_or_admin:
             qs = qs.filter(employee=user)
