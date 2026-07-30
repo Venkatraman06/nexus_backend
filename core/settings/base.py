@@ -7,7 +7,7 @@ from decouple import config
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, os.path.join(BASE_DIR, "apps"))
 
-URL_PREFIX = "pmt"
+URL_PREFIX = config("URL_PREFIX", default="pmt")
 
 # Chat module (apps/chat)
 CHAT_MAX_ATTACHMENT_SIZE = config("CHAT_MAX_ATTACHMENT_SIZE", default=10 * 1024 * 1024, cast=int)  # 10MB
