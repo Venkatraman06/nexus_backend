@@ -230,9 +230,28 @@ from .serializers import (
     EmployeeReimbursementListSerializer, EmployeeReimbursementDetailSerializer,
     EmployeeReimbursementCreateSerializer, ReimbursementAttachmentSerializer,
 )
+from apps.master.models import ReimbursementConfig
 
 
 class EmployeeReimbursementViewSet(BaseModelViewSet):
+    """
+    Manages the full lifecycle of employee reimbursement claims.
+
+    Access model (read)
+    -------------------
+    - Employees see only their own claims.
+    - The configured approver (from Master) sees ALL claims.
+    - Superusers / staff see ALL claims.
+    - No group-name string matching — all decisions are driven by Master config.
+
+    Workflow
+    --------
+    DRAFT → SUBMITTED → APPROVED → PAID
+                     └→ INFO_REQUESTED → SUBMITTED (re-submit)
+                     └→ REJECTED
+
+    On APPROVED: automatically creates a linked CompanyExpense record.
+    """
     permission_classes = [IsAuthenticated]
 
     queryset = EmployeeReimbursement.objects.select_related(
@@ -247,49 +266,57 @@ class EmployeeReimbursementViewSet(BaseModelViewSet):
             return EmployeeReimbursementDetailSerializer
         return EmployeeReimbursementListSerializer
 
+    # ── Private helpers ─────────────────────────────────────────────────
+
+    def _get_active_config(self):
+        """
+        Fetch the singleton reimbursement config.
+        Raises a 503 if the administrator has not yet configured an approver —
+        this is a business-critical prerequisite, not an optional feature.
+        """
+        config = ReimbursementConfig.get_active()
+        if config is None:
+            from rest_framework.exceptions import APIException
+            raise APIException(
+                "Reimbursement approver has not been configured in Master settings. "
+                "Please contact your administrator."
+            )
+        return config
+
+    def _is_approver(self, user):
+        """Returns True if `user` is the currently configured approver."""
+        config = ReimbursementConfig.get_active()
+        return config is not None and config.approver_id == user.id
+
+    def _is_privileged(self, user):
+        """Returns True if user may see all claims (approver, staff, superuser)."""
+        return user.is_superuser or user.is_staff or self._is_approver(user)
+
+    def _log_status_change(self, instance, from_status, to_status, user, comments=""):
+        ReimbursementAuditLog.objects.create(
+            reimbursement=instance,
+            from_status=from_status,
+            to_status=to_status,
+            performed_by=user,
+            comments=comments,
+        )
+
+    # ── Queryset scoping ────────────────────────────────────────────────
+
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user
         p = self.request.query_params
 
-        # Non-HR/Finance/Admin users only see their own reimbursement claims
-        group_str = ""
-        if isinstance(user.keycloak_group, list):
-            group_str = " ".join(str(g) for g in user.keycloak_group).lower()
-        elif user.keycloak_group:
-            group_str = str(user.keycloak_group).lower()
-
-        dept_str = (user.department or "").lower()
-        if getattr(user, "department_ref", None) and user.department_ref.name:
-            dept_str += " " + user.department_ref.name.lower()
-
-        user_perms = getattr(self.request, "user_permissions", [])
-
-        # Check if user is configured as reviewer or approver in Master ReimbursementConfig
-        from apps.master.models import ReimbursementConfig
-        config = ReimbursementConfig.objects.filter(is_active=True).first()
-        is_configured_reviewer_or_approver = False
-        if config:
-            if config.reviewer_id == user.id or config.approver_id == user.id:
-                is_configured_reviewer_or_approver = True
-
-        is_hr_or_admin = (
-            user.is_superuser
-            or user.is_staff
-            or is_configured_reviewer_or_approver
-            or any(g in group_str for g in ["admin", "hr", "ceo", "finance"])
-            or any(d in dept_str for d in ["hr", "human resource", "finance", "accounts", "admin"])
-            or "pmt.crm.expense.view" in user_perms
-            or "pmt.crm.expense.approve" in user_perms
-        )
-        if not is_hr_or_admin:
+        # Scope: privileged users see all, regular employees see only their own
+        if not self._is_privileged(user):
             qs = qs.filter(employee=user)
 
         # Filters
         if p.get("status"):       qs = qs.filter(status=p["status"])
         if p.get("category"):     qs = qs.filter(category=p["category"])
         if p.get("employee"):     qs = qs.filter(employee_id=p["employee"])
-        if p.get("department"):   qs = qs.filter(Q(employee__department_ref_id=p["department"]) | Q(employee__department=p["department"]))
+        if p.get("department"):   qs = qs.filter(employee__department_ref_id=p["department"])
         if p.get("project"):      qs = qs.filter(project_id=p["project"])
         if p.get("client"):       qs = qs.filter(client_id=p["client"])
         if p.get("date_from"):    qs = qs.filter(expense_date__gte=p["date_from"])
@@ -307,6 +334,8 @@ class EmployeeReimbursementViewSet(BaseModelViewSet):
             )
         return qs
 
+    # ── Standard CRUD overrides ──────────────────────────────────────────
+
     def perform_create(self, serializer):
         reimbursement = serializer.save(
             employee=self.request.user,
@@ -314,12 +343,9 @@ class EmployeeReimbursementViewSet(BaseModelViewSet):
             updated_by=self.request.user,
             status=ReimbursementStatus.DRAFT,
         )
-        ReimbursementAuditLog.objects.create(
-            reimbursement=reimbursement,
-            from_status=ReimbursementStatus.DRAFT,
-            to_status=ReimbursementStatus.DRAFT,
-            performed_by=self.request.user,
-            comments="Reimbursement claim created as Draft",
+        self._log_status_change(
+            reimbursement, ReimbursementStatus.DRAFT, ReimbursementStatus.DRAFT,
+            self.request.user, "Reimbursement claim created as Draft"
         )
 
     def list(self, request, *args, **kwargs):
@@ -345,167 +371,247 @@ class EmployeeReimbursementViewSet(BaseModelViewSet):
             "count":   qs.count(),
         })
 
-    def _log_status_change(self, instance, from_status, to_status, user, comments=""):
-        ReimbursementAuditLog.objects.create(
-            reimbursement=instance,
-            from_status=from_status,
-            to_status=to_status,
-            performed_by=user,
-            comments=comments,
-        )
+    # ── Workflow actions ─────────────────────────────────────────────────
+
+    @action(detail=False, methods=["get"], url_path="active-config")
+    def active_config(self, request):
+        """
+        Returns the active reimbursement approver configuration.
+        Used by the Finance UI to display who the approver is without
+        requiring a separate Master API call.
+        """
+        from apps.master.serializers import ReimbursementConfigReadSerializer
+        config = ReimbursementConfig.get_active()
+        if config is None:
+            return Response({"is_configured": False, "detail": "No approver configured."})
+        return Response(ReimbursementConfigReadSerializer(config).data)
 
     @action(detail=True, methods=["post"], url_path="submit")
     def submit(self, request, pk=None):
+        """
+        Employee submits a DRAFT (or INFO_REQUESTED) claim for approval.
+        The configured approver is automatically resolved from Master config.
+        """
         claim = self.get_object()
+
+        # Ownership check: only the claim owner may submit it
+        if claim.employee_id != request.user.id and not self._is_privileged(request.user):
+            return Response(
+                {"detail": "You can only submit your own claims."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         if claim.status not in (ReimbursementStatus.DRAFT, ReimbursementStatus.INFO_REQUESTED):
-            return Response({"detail": "Only DRAFT or INFO_REQUESTED claims can be submitted."},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": f"Cannot submit a claim in status '{claim.get_status_display()}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         old_status = claim.status
         claim.status = ReimbursementStatus.SUBMITTED
-        claim.save(update_fields=["status"])
-        self._log_status_change(claim, old_status, ReimbursementStatus.SUBMITTED, request.user, "Submitted for review")
+        claim.save(update_fields=["status", "updated_at"])
+        self._log_status_change(claim, old_status, ReimbursementStatus.SUBMITTED, request.user, "Submitted for approval")
 
-        # Publish notification to HR & Finance team
-        try:
-            from apps.notifications.publisher import publish_event
-            from apps.notifications.constants import EventType, ReferenceType
-            publish_event(
-                event_type=EventType.REIMBURSEMENT_SUBMITTED,
-                reference_type=ReferenceType.REIMBURSEMENT,
-                reference_id=str(claim.id),
-                actor_id=str(request.user.id),
-                payload={
-                    "claim_number": claim.claim_number,
-                    "title": claim.title,
-                    "amount": float(claim.amount_claimed),
-                    "employee_name": claim.employee.full_name or claim.employee.username,
-                },
-                action_url="/expenses",
-            )
-        except Exception:
-            pass
+        # Notify the configured approver (not a hardcoded group)
+        config = ReimbursementConfig.get_active()
+        if config:
+            try:
+                from apps.notifications.publisher import publish_event
+                from apps.notifications.constants import EventType, ReferenceType
+                publish_event(
+                    event_type=EventType.REIMBURSEMENT_SUBMITTED,
+                    reference_type=ReferenceType.REIMBURSEMENT,
+                    reference_id=str(claim.id),
+                    actor_id=str(request.user.id),
+                    payload={
+                        "claim_number":   claim.claim_number,
+                        "title":          claim.title,
+                        "amount":         float(claim.amount_claimed),
+                        "employee_name":  claim.employee.full_name or claim.employee.username,
+                        "approver_id":    str(config.approver_id),
+                    },
+                    action_url="/expenses",
+                )
+            except Exception:
+                pass  # Never let notification failure block the workflow
 
         return Response(EmployeeReimbursementDetailSerializer(claim).data)
 
-    @action(detail=True, methods=["post"], url_path="review")
-    def review(self, request, pk=None):
-        """Move to UNDER_HR_REVIEW or request additional info."""
+    @action(detail=True, methods=["post"], url_path="request-info")
+    def request_info(self, request, pk=None):
+        """
+        Approver requests additional information from the employee.
+        Claim moves to INFO_REQUESTED; the employee must re-submit after update.
+        """
+        if not self._is_privileged(request.user):
+            return Response({"detail": "Only the configured approver may request additional information."},
+                            status=status.HTTP_403_FORBIDDEN)
+
         claim = self.get_object()
-        action_type = request.data.get("action", "review") # 'review' or 'request_info'
-        comments = request.data.get("comments", "")
+        if claim.status != ReimbursementStatus.SUBMITTED:
+            return Response({"detail": "Only SUBMITTED claims can be queried for more information."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        comments = request.data.get("comments", "").strip()
+        if not comments:
+            return Response({"detail": "A comment explaining what information is needed is required."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         old_status = claim.status
-
-        if action_type == "request_info":
-            claim.status = ReimbursementStatus.INFO_REQUESTED
-            claim.review_comments = comments
-            claim.reviewed_by = request.user
-            claim.reviewed_at = timezone.now()
-            claim.save(update_fields=["status", "review_comments", "reviewed_by", "reviewed_at"])
-            self._log_status_change(claim, old_status, ReimbursementStatus.INFO_REQUESTED, request.user, comments)
-        else:
-            claim.status = ReimbursementStatus.UNDER_HR_REVIEW
-            claim.reviewed_by = request.user
-            claim.reviewed_at = timezone.now()
-            claim.save(update_fields=["status", "reviewed_by", "reviewed_at"])
-            self._log_status_change(claim, old_status, ReimbursementStatus.UNDER_HR_REVIEW, request.user, comments)
-
+        claim.status = ReimbursementStatus.INFO_REQUESTED
+        claim.review_comments = comments
+        claim.reviewed_by = request.user
+        claim.reviewed_at = timezone.now()
+        claim.save(update_fields=["status", "review_comments", "reviewed_by", "reviewed_at", "updated_at"])
+        self._log_status_change(claim, old_status, ReimbursementStatus.INFO_REQUESTED, request.user, comments)
         return Response(EmployeeReimbursementDetailSerializer(claim).data)
 
     @action(detail=True, methods=["post"], url_path="approve")
     def approve(self, request, pk=None):
-        claim = self.get_object()
-        if claim.status in (ReimbursementStatus.APPROVED, ReimbursementStatus.PAID, ReimbursementStatus.REJECTED):
-            return Response({"detail": f"Claim is already {claim.status}."}, status=status.HTTP_400_BAD_REQUEST)
-
-        comments = request.data.get("comments", "")
-        old_status = claim.status
-        claim.status = ReimbursementStatus.APPROVED
-        claim.reviewed_by = request.user
-        claim.reviewed_at = timezone.now()
-        claim.review_comments = comments
-
-        # Automatically create or link to Company Expense record on Approval
-        if not claim.linked_expense:
-            from apps.expenses.models import ExpenseAttachment
-            expense = CompanyExpense.objects.create(
-                date=claim.expense_date,
-                category=claim.category,
-                description=f"[Reimbursement {claim.claim_number}] {claim.title}",
-                amount=claim.amount_claimed,
-                paid_by=claim.employee,
-                project=claim.project,
-                client=claim.client,
-                payment_mode=claim.payment_method,
-                reference_number=claim.claim_number,
-                attachment=claim.attachments.first().file if claim.attachments.exists() else None,
-                status=ExpenseStatus.APPROVED,
-                approved_by=request.user,
-                approved_at=timezone.now(),
-                notes=f"Auto-generated expense entry from approved reimbursement claim {claim.claim_number}.",
+        """
+        Approves a SUBMITTED claim.  The requesting user MUST be the configured
+        approver — this is enforced server-side, regardless of what the frontend
+        sends.  On approval, a CompanyExpense is auto-created atomically.
+        """
+        if not self._is_privileged(request.user):
+            return Response(
+                {"detail": "Only the configured approver may approve claims."},
+                status=status.HTTP_403_FORBIDDEN,
             )
-            # Copy attachments
-            for att in claim.attachments.all():
-                ExpenseAttachment.objects.create(
-                    expense=expense,
-                    file=att.file,
-                    original_name=att.original_name,
-                    file_size=att.file_size,
-                    content_type=att.content_type,
-                    uploaded_by=att.uploaded_by
-                )
-            claim.linked_expense = expense
 
-        claim.save(update_fields=["status", "reviewed_by", "reviewed_at", "review_comments", "linked_expense"])
-        self._log_status_change(claim, old_status, ReimbursementStatus.APPROVED, request.user, comments)
+        claim = self.get_object()
+        if claim.status != ReimbursementStatus.SUBMITTED:
+            return Response(
+                {"detail": f"Only SUBMITTED claims can be approved. Current status: {claim.get_status_display()}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        comments  = request.data.get("comments", "")
+        old_status = claim.status
+
+        from django.db import transaction
+        with transaction.atomic():
+            # Auto-create Company Expense atomically with status change
+            if not claim.linked_expense:
+                from apps.expenses.models import ExpenseAttachment
+                expense = CompanyExpense.objects.create(
+                    date=claim.expense_date,
+                    category=claim.category,
+                    description=f"[Reimbursement {claim.claim_number}] {claim.title}",
+                    amount=claim.amount_claimed,
+                    paid_by=claim.employee,
+                    project=claim.project,
+                    client=claim.client,
+                    payment_mode=claim.payment_method,
+                    reference_number=claim.claim_number,
+                    attachment=claim.attachments.first().file if claim.attachments.exists() else None,
+                    status=ExpenseStatus.APPROVED,
+                    approved_by=request.user,
+                    approved_at=timezone.now(),
+                    notes=f"Auto-generated from approved reimbursement {claim.claim_number}.",
+                )
+                # Copy all attachments to the linked expense
+                for att in claim.attachments.all():
+                    ExpenseAttachment.objects.create(
+                        expense=expense,
+                        file=att.file,
+                        original_name=att.original_name,
+                        file_size=att.file_size,
+                        content_type=att.content_type,
+                        uploaded_by=att.uploaded_by,
+                    )
+                claim.linked_expense = expense
+
+            claim.status       = ReimbursementStatus.APPROVED
+            claim.reviewed_by  = request.user
+            claim.reviewed_at  = timezone.now()
+            claim.review_comments = comments
+            claim.save(update_fields=[
+                "status", "reviewed_by", "reviewed_at", "review_comments",
+                "linked_expense", "updated_at"
+            ])
+            self._log_status_change(claim, old_status, ReimbursementStatus.APPROVED, request.user, comments)
 
         return Response(EmployeeReimbursementDetailSerializer(claim).data)
 
     @action(detail=True, methods=["post"], url_path="reject")
     def reject(self, request, pk=None):
+        """
+        Rejects a SUBMITTED claim.  Only the configured approver may reject.
+        """
+        if not self._is_privileged(request.user):
+            return Response({"detail": "Only the configured approver may reject claims."},
+                            status=status.HTTP_403_FORBIDDEN)
+
         claim = self.get_object()
         if claim.status in (ReimbursementStatus.APPROVED, ReimbursementStatus.PAID, ReimbursementStatus.REJECTED):
-            return Response({"detail": f"Cannot reject a claim that is {claim.status}."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": f"Cannot reject a claim that is already {claim.get_status_display()}."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
-        reason = request.data.get("comments") or request.data.get("reason", "")
+        if claim.status != ReimbursementStatus.SUBMITTED:
+            return Response({"detail": "Only SUBMITTED claims can be rejected."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        reason = (request.data.get("comments") or request.data.get("reason", "")).strip()
+        if not reason:
+            return Response({"detail": "A rejection reason is required."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         old_status = claim.status
-        claim.status = ReimbursementStatus.REJECTED
-        claim.reviewed_by = request.user
-        claim.reviewed_at = timezone.now()
+        claim.status       = ReimbursementStatus.REJECTED
+        claim.reviewed_by  = request.user
+        claim.reviewed_at  = timezone.now()
         claim.review_comments = reason
-        claim.save(update_fields=["status", "reviewed_by", "reviewed_at", "review_comments"])
-
+        claim.save(update_fields=["status", "reviewed_by", "reviewed_at", "review_comments", "updated_at"])
         self._log_status_change(claim, old_status, ReimbursementStatus.REJECTED, request.user, reason)
         return Response(EmployeeReimbursementDetailSerializer(claim).data)
 
     @action(detail=True, methods=["post"], url_path="mark-paid")
     def mark_paid(self, request, pk=None):
+        """
+        Marks an APPROVED claim as paid.  Only privileged users (approver / admin) may do this.
+        Also syncs the linked CompanyExpense status to REIMBURSED.
+        """
+        if not self._is_privileged(request.user):
+            return Response({"detail": "Only the configured approver or an administrator may mark claims as paid."},
+                            status=status.HTTP_403_FORBIDDEN)
+
         claim = self.get_object()
-        if claim.status not in (ReimbursementStatus.APPROVED, ReimbursementStatus.UNDER_HR_REVIEW):
-            return Response({"detail": "Only APPROVED or UNDER_HR_REVIEW claims can be marked as paid."},
+        if claim.status != ReimbursementStatus.APPROVED:
+            return Response({"detail": "Only APPROVED claims can be marked as paid."},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        comments = request.data.get("comments", "")
+        comments   = request.data.get("comments", "")
         old_status = claim.status
-        claim.status = ReimbursementStatus.PAID
-        claim.paid_by = request.user
-        claim.paid_at = timezone.now()
 
-        # Sync linked expense status to REIMBURSED if present
-        if claim.linked_expense:
-            claim.linked_expense.status = ExpenseStatus.REIMBURSED
-            claim.linked_expense.save(update_fields=["status"])
+        from django.db import transaction
+        with transaction.atomic():
+            claim.status  = ReimbursementStatus.PAID
+            claim.paid_by = request.user
+            claim.paid_at = timezone.now()
+            claim.save(update_fields=["status", "paid_by", "paid_at", "updated_at"])
 
-        claim.save(update_fields=["status", "paid_by", "paid_at"])
+            # Keep CompanyExpense in sync
+            if claim.linked_expense:
+                claim.linked_expense.status = ExpenseStatus.REIMBURSED
+                claim.linked_expense.save(update_fields=["status"])
+
         self._log_status_change(claim, old_status, ReimbursementStatus.PAID, request.user, comments)
-
         return Response(EmployeeReimbursementDetailSerializer(claim).data)
 
     @action(detail=True, methods=["post"], url_path="attachments")
     def upload_attachment(self, request, pk=None):
-        claim = self.get_object()
+        claim    = self.get_object()
         file_obj = request.FILES.get("file")
         if not file_obj:
             return Response({"detail": "No file supplied."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Block uploads on terminal states
+        if claim.status in (ReimbursementStatus.APPROVED, ReimbursementStatus.PAID, ReimbursementStatus.REJECTED):
+            return Response(
+                {"detail": f"Cannot upload attachments to a claim in status '{claim.get_status_display()}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         att = ReimbursementAttachment.objects.create(
             reimbursement=claim,
@@ -518,5 +624,3 @@ class EmployeeReimbursementViewSet(BaseModelViewSet):
             updated_by=request.user,
         )
         return Response(ReimbursementAttachmentSerializer(att).data, status=status.HTTP_201_CREATED)
-
-

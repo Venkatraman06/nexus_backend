@@ -247,16 +247,69 @@ class HolidaySerializer(serializers.ModelSerializer):
 
 
 from .models import ReimbursementConfig
+from apps.accounts.models import Employee
 
-class ReimbursementConfigSerializer(serializers.ModelSerializer):
-    reviewer_name = serializers.CharField(source="reviewer.full_name", read_only=True)
-    approver_name = serializers.CharField(source="approver.full_name", read_only=True)
+
+class ReimbursementConfigReadSerializer(serializers.ModelSerializer):
+    """
+    Read-only projection of the singleton ReimbursementConfig.
+    Returns the full approver snapshot so the UI never needs a separate employee lookup.
+    """
+    approver_id   = serializers.UUIDField(source="approver.id",           read_only=True)
+    approver_name = serializers.CharField(source="approver.full_name",     read_only=True)
+    approver_code = serializers.CharField(source="approver.employee_code", read_only=True)
+    approver_email= serializers.EmailField(source="approver.email",        read_only=True)
+    configured_by_name = serializers.CharField(
+        source="configured_by.full_name", read_only=True, default=None
+    )
+    is_configured = serializers.SerializerMethodField()
 
     class Meta:
-        model = ReimbursementConfig
+        model  = ReimbursementConfig
         fields = [
-            "id", "name", "reviewer", "reviewer_name",
-            "approver", "approver_name", "is_active",
-            "auto_approve_below", "created_at", "updated_at",
+            "id",
+            "approver_id", "approver_name", "approver_code", "approver_email",
+            "configured_by_name",
+            "is_configured",
+            "created_at", "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = fields
+
+    def get_is_configured(self, obj) -> bool:
+        return obj.approver_id is not None
+
+
+class ReimbursementConfigWriteSerializer(serializers.Serializer):
+    """
+    Write-only contract for configuring the singleton approver.
+
+    Why a plain Serializer, not ModelSerializer?
+    ModelSerializer exposes too much: it can create/update arbitrary fields and
+    bypasses our `set_approver()` business method.  A plain Serializer is
+    explicit about what the client may supply and routes all persistence through
+    the model's own atomic method.
+    """
+    approver = serializers.PrimaryKeyRelatedField(
+        queryset=Employee.objects.filter(is_active=True, is_deleted=False),
+        error_messages={
+            "does_not_exist": "No active employee found with the given ID.",
+            "required":       "An approver must be selected.",
+        },
+    )
+
+    def validate_approver(self, employee):
+        """Guard: the approver must be an active, non-deleted employee."""
+        if not employee.is_active:
+            raise serializers.ValidationError("The selected employee is inactive and cannot be an approver.")
+        return employee
+
+    def save(self, configured_by=None):
+        """
+        Route all persistence through the model's atomic method.
+        Returns the persisted (or updated) ReimbursementConfig instance.
+        """
+        approver_employee = self.validated_data["approver"]
+        return ReimbursementConfig.set_approver(
+            approver_employee=approver_employee,
+            configured_by_employee=configured_by,
+        )

@@ -399,27 +399,44 @@ class WFHRequestAdminView(APIView):
 
 
 from .models import ReimbursementConfig
-from .serializers import ReimbursementConfigSerializer
+from .serializers import ReimbursementConfigReadSerializer, ReimbursementConfigWriteSerializer
 
-from apps.common.viewsets import BaseModelViewSet
 
-class ReimbursementConfigViewSet(BaseModelViewSet):
+class ReimbursementConfigView(APIView):
+    """
+    Singleton endpoint for the reimbursement approver configuration.
+
+    Design decisions
+    ----------------
+    * A ViewSet is intentionally NOT used here.  ViewSets imply a collection of
+      resources; this is a single resource with no concept of a list, no IDs in
+      the URL, and no delete semantics.
+    * GET returns the current configuration or a descriptive 404.
+    * PUT is the only write verb — it either creates or updates the single row.
+      PATCH is not exposed: the only field is `approver`, so partial vs full is
+      meaningless.
+    * Permissions: only staff/superusers or users with the HRMS master update
+      permission may write.  Anyone authenticated may read (so the Finance
+      module can verify who the approver is).
+    """
     permission_classes = [IsAuthenticated]
-    serializer_class   = ReimbursementConfigSerializer
-    queryset           = ReimbursementConfig.objects.select_related("reviewer", "approver").all()
-    filterset_fields   = ["is_active"]
-    search_fields      = ["name"]
 
-    def get_queryset(self):
-        return self.queryset
+    def get(self, request):
+        config = ReimbursementConfig.get_active()
+        if config is None:
+            return Response(
+                {"detail": "Reimbursement approver has not been configured yet.",
+                 "is_configured": False},
+                status=status.HTTP_200_OK,
+            )
+        return Response(ReimbursementConfigReadSerializer(config).data)
 
-    def perform_create(self, serializer):
-        serializer.save()
-
-    def perform_update(self, serializer):
-        serializer.save()
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+    def put(self, request):
+        """Upsert the singleton config.  Creates if missing, updates if present."""
+        serializer = ReimbursementConfigWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        config = serializer.save(configured_by=request.user)
+        return Response(
+            ReimbursementConfigReadSerializer(config).data,
+            status=status.HTTP_200_OK,
+        )
