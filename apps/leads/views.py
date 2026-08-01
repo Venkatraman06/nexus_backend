@@ -47,26 +47,50 @@ class LeadViewSet(ModelViewSet):
                     pass
 
             client, _ = Client.objects.get_or_create(
-    name=instance.name,
-    defaults={
-        "company": instance.company or "",
-        "college": instance.college or "",
-        "contact_person": instance.contact_person or "",
-        "phone": instance.phone or "",
-        "whatsapp": instance.whatsapp or "",
-        "email": instance.email or "",
-        "notes": instance.notes or "",
-        "relationship_score": 80,
-        "business_category": instance.business_category or "",
-        "deal_title": instance.deal_title or "",
-        "deal_description": instance.deal_description or "",
-        "deal_amount": instance.deal_amount or None,
-        "deal_date_from": instance.deal_date_from or None,
-        "deal_date_to": instance.deal_date_to or None,
-        "created_by": self.request.user,
-        "updated_by": self.request.user,
-    }
-)
+                name=instance.name,
+                defaults={
+                    "company": instance.company or "",
+                    "college": instance.college or "",
+                    "contact_person": instance.contact_person or "",
+                    "phone": instance.phone or "",
+                    "whatsapp": instance.whatsapp or "",
+                    "email": instance.email or "",
+                    "notes": instance.notes or "",
+                    "relationship_score": 80,
+                    "business_category": instance.business_category or "",
+                    "deal_title": instance.deal_title or "",
+                    "deal_description": instance.deal_description or "",
+                    "deal_amount": instance.deal_amount or None,
+                    "deal_date_from": instance.deal_date_from or None,
+                    "deal_date_to": instance.deal_date_to or None,
+                    "created_by": self.request.user,
+                    "updated_by": self.request.user,
+                }
+            )
+
+            # Auto-sync Sales Opportunity (Deal)
+            from apps.sales.models import Deal
+            from decimal import Decimal
+            deal_val = instance.deal_amount if instance.deal_amount is not None else Decimal("0.00")
+            deal_title = instance.deal_title or instance.name or "Converted Opportunity"
+            deal, deal_created = Deal.objects.get_or_create(
+                client=client,
+                defaults={
+                    "title": deal_title,
+                    "description": instance.deal_description or instance.notes or "",
+                    "expected_value": deal_val,
+                    "stage": "Active",
+                    "created_by": self.request.user,
+                    "updated_by": self.request.user,
+                }
+            )
+            if not deal_created:
+                if deal_val and deal_val > 0:
+                    deal.expected_value = deal_val
+                if instance.deal_title:
+                    deal.title = instance.deal_title
+                deal.save()
+
             assigned_ids = self.request.data.get("assigned_employee_ids")
             if assigned_ids:
                 from apps.accounts.models import Employee
@@ -81,6 +105,12 @@ class LeadViewSet(ModelViewSet):
                 if self.request.user not in participants:
                     participants.append(self.request.user)
                 room.participants.set(participants)
+        elif old_status == "WON" and instance.status != "WON":
+            # If lead status reverted from WON, update associated client and deal
+            client = Client.objects.filter(name=instance.name, is_deleted=False).first()
+            if client:
+                from apps.sales.models import Deal
+                Deal.objects.filter(client=client, is_deleted=False).update(stage="Active")
 
 
 class LeadActivityViewSet(ModelViewSet):
