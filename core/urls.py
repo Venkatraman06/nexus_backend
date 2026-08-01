@@ -3,10 +3,12 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
+from django.views.generic import RedirectView
 
 from core.settings import URL_PREFIX
 
 urlpatterns = [
+    path("", RedirectView.as_view(url=f"/{URL_PREFIX}/api/docs/", permanent=False)),
     path(f"{URL_PREFIX}/admin/", admin.site.urls),
     path(f"{URL_PREFIX}/api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(f"{URL_PREFIX}/api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),

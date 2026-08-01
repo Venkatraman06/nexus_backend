@@ -11,6 +11,7 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
     "SORT_OPERATIONS": False,
+    "DISABLE_ERRORS_AND_WARNINGS": True,
     "ENUM_NAME_OVERRIDES": {
         "ProjectStatusEnum":    "apps.common.constants.ProjectStatus",
         "ProjectHealthEnum":    "apps.common.constants.ProjectHealth",
