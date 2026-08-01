@@ -40,8 +40,11 @@ class Lead(BaseModel):
     deal_amount       = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     deal_date_from    = models.DateField(null=True, blank=True)
     deal_date_to      = models.DateField(null=True, blank=True)
-    assigned_to       = models.CharField(max_length=100, blank=True, default='')
-    assigned_to_name  = models.CharField(max_length=200, blank=True, default='')
+    assigned_to       = models.CharField(max_length=100, blank=True, default='')  # legacy, can keep or drop
+    assigned_to_name  = models.CharField(max_length=200, blank=True, default='')  # legacy, can keep or drop
+    assigned_employees = models.ManyToManyField(
+        "accounts.Employee", blank=True, related_name="assigned_leads_m2m"
+    )
 
     class Meta:
         db_table = "crm_lead"

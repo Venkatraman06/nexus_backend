@@ -1,4 +1,6 @@
 from rest_framework import serializers
+
+from apps.accounts.serializers import EmployeeListSerializer
 from .models import (
     Lead, LeadActivity, LeadTask, LeadDocument, Client,
     ClientChatRoom, ClientChatMessage,
@@ -7,9 +9,19 @@ from apps.accounts.models import Employee
 
 
 class LeadSerializer(serializers.ModelSerializer):
+    assigned_employees = EmployeeListSerializer(many=True, read_only=True)
+    assigned_employee_ids = serializers.PrimaryKeyRelatedField(
+        source="assigned_employees", queryset=Employee.objects.all(),
+        many=True, write_only=True, required=False,
+    )
+    assigned_employee_names = serializers.SerializerMethodField()
+
     class Meta:
         model = Lead
         fields = "__all__"
+
+    def get_assigned_employee_names(self, obj):
+        return [e.full_name for e in obj.assigned_employees.all()]
 
 
 class LeadActivitySerializer(serializers.ModelSerializer):

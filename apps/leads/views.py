@@ -46,7 +46,7 @@ class LeadViewSet(ModelViewSet):
                 except Exception:
                     pass
 
-            client, _ = Client.objects.get_or_create(
+            client, created = Client.objects.get_or_create(
                 name=instance.name,
                 defaults={
                     "company": instance.company or "",
@@ -68,7 +68,57 @@ class LeadViewSet(ModelViewSet):
                 }
             )
 
-            # Auto-sync Sales Opportunity (Deal)
+            # Always sync deal fields onto the client (handles re-conversion too)
+            if not created:
+                update_fields = []
+                for field, val in [
+                    ("company", instance.company or ""),
+                    ("college", instance.college or ""),
+                    ("contact_person", instance.contact_person or ""),
+                    ("phone", instance.phone or ""),
+                    ("whatsapp", instance.whatsapp or ""),
+                    ("email", instance.email or ""),
+                    ("business_category", instance.business_category or ""),
+                    ("deal_title", instance.deal_title or ""),
+                    ("deal_description", instance.deal_description or ""),
+                    ("deal_amount", instance.deal_amount or None),
+                    ("deal_date_from", instance.deal_date_from or None),
+                    ("deal_date_to", instance.deal_date_to or None),
+                ]:
+                    setattr(client, field, val)
+                    update_fields.append(field)
+                client.updated_by = self.request.user
+                update_fields.append("updated_by")
+                client.save(update_fields=update_fields)
+
+            # Sync assigned employees from request
+            assigned_ids = self.request.data.get("assigned_employee_ids") or []
+            if assigned_ids:
+                from apps.accounts.models import Employee
+                employees = list(Employee.objects.filter(id__in=assigned_ids))
+                client.assigned_employees.set(employees)
+                print("DEBUG: client id =", client.id)
+                print("DEBUG: employees set =", [str(e.id) for e in employees])
+                print("DEBUG: client.assigned_employees.all() =", list(client.assigned_employees.all()))
+                print("DEBUG: assigned_ids from request =", assigned_ids)
+
+                room, _ = ClientChatRoom.objects.get_or_create(
+                    client=client,
+                    defaults={
+                        "name": f"{client.name} — Project Chat",
+                        "created_by": self.request.user,
+                        "updated_by": self.request.user,
+                    },
+                )
+                participants = list(employees)
+                if self.request.user not in participants:
+                    participants.append(self.request.user)
+                room.participants.set(participants)
+            else:
+                # Clear employees if none sent
+                client.assigned_employees.clear()
+
+            # Auto-sync Sales Deal
             from apps.sales.models import Deal
             from decimal import Decimal
             deal_val = instance.deal_amount if instance.deal_amount is not None else Decimal("0.00")
@@ -90,27 +140,6 @@ class LeadViewSet(ModelViewSet):
                 if instance.deal_title:
                     deal.title = instance.deal_title
                 deal.save()
-
-            assigned_ids = self.request.data.get("assigned_employee_ids")
-            if assigned_ids:
-                from apps.accounts.models import Employee
-                employees = Employee.objects.filter(id__in=assigned_ids)
-                client.assigned_employees.set(employees)
-
-                room, _ = ClientChatRoom.objects.get_or_create(
-                    client=client,
-                    defaults={"name": f"{client.name} — Project Chat", "created_by": self.request.user, "updated_by": self.request.user},
-                )
-                participants = list(employees)
-                if self.request.user not in participants:
-                    participants.append(self.request.user)
-                room.participants.set(participants)
-        elif old_status == "WON" and instance.status != "WON":
-            # If lead status reverted from WON, update associated client and deal
-            client = Client.objects.filter(name=instance.name, is_deleted=False).first()
-            if client:
-                from apps.sales.models import Deal
-                Deal.objects.filter(client=client, is_deleted=False).update(stage="Active")
 
 
 class LeadActivityViewSet(ModelViewSet):
