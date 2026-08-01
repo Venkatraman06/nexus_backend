@@ -25,7 +25,14 @@ class LeadViewSet(ModelViewSet):
         serializer.save(created_by=self.request.user, updated_by=self.request.user)
 
     def perform_update(self, serializer):
+        try:
+            old_instance = self.get_object()
+            old_status = old_instance.status
+        except Exception:
+            old_status = None
+
         instance = serializer.save(updated_by=self.request.user)
+
         if instance.status == "WON":
             if instance.assigned_to and not instance.assigned_to_name:
                 try:
@@ -37,7 +44,7 @@ class LeadViewSet(ModelViewSet):
                 except Exception:
                     pass
 
-            client, _ = Client.objects.get_or_create(
+            Client.objects.get_or_create(
                 name=instance.name,
                 defaults={
                     "company": instance.company,
