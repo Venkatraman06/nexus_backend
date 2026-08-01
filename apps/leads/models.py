@@ -132,6 +132,9 @@ class Client(BaseModel):
     assigned_to          = models.ForeignKey(
         "accounts.Employee", on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_clients"
     )
+    assigned_employees = models.ManyToManyField(
+        "accounts.Employee", blank=True, related_name="assigned_clients_m2m"
+    )
 
     class Meta:
         db_table = "crm_client"
@@ -139,3 +142,26 @@ class Client(BaseModel):
 
     def __str__(self):
         return self.name
+
+
+class ClientChatRoom(BaseModel):
+    client = models.OneToOneField(Client, on_delete=models.CASCADE, related_name="chat_room")
+    name = models.CharField(max_length=300, blank=True, default="")
+    participants = models.ManyToManyField("accounts.Employee", related_name="client_chat_rooms")
+
+    class Meta:
+        db_table = "crm_client_chat_room"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.name or f"Chat: {self.client.name}"
+
+
+class ClientChatMessage(BaseModel):
+    room = models.ForeignKey(ClientChatRoom, on_delete=models.CASCADE, related_name="messages")
+    sender = models.ForeignKey("accounts.Employee", on_delete=models.SET_NULL, null=True, related_name="+")
+    text = models.TextField()
+
+    class Meta:
+        db_table = "crm_client_chat_message"
+        ordering = ["created_at"]
