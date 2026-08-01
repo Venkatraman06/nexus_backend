@@ -1,3 +1,5 @@
+
+
 from rest_framework.viewsets import ModelViewSet
 from apps.common.permissions import IsAuthenticated
 
@@ -44,19 +46,27 @@ class LeadViewSet(ModelViewSet):
                 except Exception:
                     pass
 
-            Client.objects.get_or_create(
-                name=instance.name,
-                defaults={
-                    "company": instance.company,
-                    "college": instance.college,
-                    "contact_person": instance.contact_person,
-                    "phone": instance.phone,
-                    "whatsapp": instance.whatsapp,
-                    "email": instance.email,
-                    "notes": instance.notes,
-                }
-            )
-
+            client, _ = Client.objects.get_or_create(
+    name=instance.name,
+    defaults={
+        "company": instance.company or "",
+        "college": instance.college or "",
+        "contact_person": instance.contact_person or "",
+        "phone": instance.phone or "",
+        "whatsapp": instance.whatsapp or "",
+        "email": instance.email or "",
+        "notes": instance.notes or "",
+        "relationship_score": 80,
+        "business_category": instance.business_category or "",
+        "deal_title": instance.deal_title or "",
+        "deal_description": instance.deal_description or "",
+        "deal_amount": instance.deal_amount or None,
+        "deal_date_from": instance.deal_date_from or None,
+        "deal_date_to": instance.deal_date_to or None,
+        "created_by": self.request.user,
+        "updated_by": self.request.user,
+    }
+)
             assigned_ids = self.request.data.get("assigned_employee_ids")
             if assigned_ids:
                 from apps.accounts.models import Employee
