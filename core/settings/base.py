@@ -51,6 +51,7 @@ PROJECT_APPS = [
     "apps.expenses",
     "apps.followups",
     "apps.leads",
+    "apps.sales",
     "apps.todos",
     "apps.workspace",
     "apps.social_feed",
