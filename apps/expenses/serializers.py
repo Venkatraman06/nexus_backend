@@ -11,6 +11,8 @@ class ExpenseListSerializer(serializers.ModelSerializer):
     category_label    = serializers.CharField(source="get_category_display",     read_only=True)
     status_label      = serializers.CharField(source="get_status_display",       read_only=True)
     payment_mode_label = serializers.CharField(source="get_payment_mode_display", read_only=True)
+    is_from_reimbursement = serializers.SerializerMethodField()
+    reimbursement_claim_number = serializers.SerializerMethodField()
 
     class Meta:
         model = CompanyExpense
@@ -24,6 +26,7 @@ class ExpenseListSerializer(serializers.ModelSerializer):
             "reference_number",
             "status", "status_label",
             "approved_by", "approved_by_name", "approved_at",
+            "is_from_reimbursement", "reimbursement_claim_number",
             "created_at",
         ]
 
@@ -38,6 +41,15 @@ class ExpenseListSerializer(serializers.ModelSerializer):
             return obj.approved_by.full_name if obj.approved_by else None
         except Exception:
             return None
+
+    def get_is_from_reimbursement(self, obj):
+        """True when this CompanyExpense was auto-created from an approved reimbursement claim."""
+        return obj.source_reimbursement.exists()
+
+    def get_reimbursement_claim_number(self, obj):
+        """Return the source claim number, or None if manually created."""
+        claim = obj.source_reimbursement.first()
+        return claim.claim_number if claim else None
 
 
 class ExpenseAttachmentSerializer(serializers.ModelSerializer):

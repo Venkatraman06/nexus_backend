@@ -34,7 +34,7 @@ class CompanyExpenseViewSet(BaseModelViewSet):
 
     queryset = CompanyExpense.objects.select_related(
         "paid_by", "approved_by", "project", "client"
-    ).filter(is_deleted=False)
+    ).prefetch_related("source_reimbursement").filter(is_deleted=False)
 
     def get_serializer_class(self):
         if self.action in ("create", "update", "partial_update"):
