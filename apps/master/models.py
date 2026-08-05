@@ -186,7 +186,7 @@ class Holiday(MasterBase):
 
 class LeaveType(MasterBase):
     code     = models.CharField(max_length=20, unique=True)
-    max_days = models.PositiveIntegerField(default=0, help_text="Max days allowed per year (0 = unlimited)")
+    max_days = models.DecimalField(max_digits=5, decimal_places=1, default=0, help_text="Max days allowed per year (0 = unlimited)")
     is_paid  = models.BooleanField(default=True)
     color    = models.CharField(max_length=20, default="#1677ff")
 
@@ -194,3 +194,110 @@ class LeaveType(MasterBase):
         db_table = "hrms_leave_type"
         verbose_name = _("leave type")
         verbose_name_plural = _("leave types")
+
+
+class ReimbursementConfig(models.Model):
+    """
+    Singleton master configuration for the reimbursement approval workflow.
+
+    Design rationale
+    ----------------
+    The business rule is: exactly ONE employee is the designated approver for all
+    reimbursement requests across the organisation at any point in time.  The old
+    implementation modelled this as a regular list, which allowed multiple rows and
+    created ambiguity about which row was authoritative.
+
+    This redesign enforces the singleton constraint at the database level via a
+    partial unique index on `is_singleton=True`, making it physically impossible
+    to insert a second configuration row.  `get_active()` is the single read
+    access-point, and `set_approver()` is the single write access-point — both
+    owned exclusively by this model class (Single Responsibility Principle).
+
+    Future multi-level approval support: add an `ApprovalLevel` child model with
+    a FK to this config and a `level` integer, keeping the singleton config as the
+    root without breaking this interface.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # The singleton sentinel — only one row may have is_singleton=True (enforced
+    # by the unique_together below), and we always operate on that row.
+    is_singleton = models.BooleanField(
+        default=True,
+        editable=False,
+        help_text="Internal sentinel. Always True. Prevents duplicate config rows.",
+    )
+
+    approver = models.ForeignKey(
+        "accounts.Employee",
+        on_delete=models.PROTECT,
+        related_name="reimbursement_approval_config",
+        help_text="The single employee responsible for approving all reimbursement claims.",
+    )
+
+    configured_by = models.ForeignKey(
+        "accounts.Employee",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reimbursement_configs_created",
+        help_text="The admin who last updated this configuration.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "master_reimbursement_config"
+        # Enforces the singleton constraint at DB level — only one row where
+        # is_singleton=True can exist.  Any attempt to INSERT a second row with
+        # is_singleton=True will raise an IntegrityError.
+        constraints = [
+            models.UniqueConstraint(
+                fields=["is_singleton"],
+                name="unique_reimbursement_singleton",
+                condition=models.Q(is_singleton=True),
+            )
+        ]
+        verbose_name = _("reimbursement config")
+        verbose_name_plural = _("reimbursement config")
+
+    def __str__(self):
+        return f"Reimbursement Config → Approver: {self.approver}"
+
+    def save(self, *args, **kwargs):
+        """Force is_singleton=True on every save — cannot be overridden."""
+        self.is_singleton = True
+        super().save(*args, **kwargs)
+
+    # ── Class-level access points (Single Responsibility) ────────────────────
+
+    @classmethod
+    def get_active(cls):
+        """
+        Returns the singleton config, or None if not yet configured.
+        This is the *only* place other modules should read the approver.
+        """
+        return cls.objects.select_related("approver", "configured_by").filter(is_singleton=True).first()
+
+    @classmethod
+    def set_approver(cls, approver_employee, configured_by_employee=None):
+        """
+        Upsert the singleton configuration.  Always updates the single row;
+        never creates duplicates.  Atomic to prevent race conditions.
+
+        Returns the config instance.
+        """
+        from django.db import transaction
+        with transaction.atomic():
+            config, _created = cls.objects.select_for_update().get_or_create(
+                is_singleton=True,
+                defaults={
+                    "approver": approver_employee,
+                    "configured_by": configured_by_employee,
+                },
+            )
+            if not _created:
+                config.approver = approver_employee
+                config.configured_by = configured_by_employee
+                config.save(update_fields=["approver", "configured_by", "updated_at"])
+        return config

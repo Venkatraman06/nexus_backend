@@ -733,8 +733,9 @@ class Command(BaseCommand):
                 "priority": cfg["priority"],
                 "description": cfg.get("description", ""),
                 "comments": cfg.get("comments", SEED_PREFIX),
+                "assignee": assignee,
                 "reporter": reporter,
-                "end_date": cfg["due_date"],
+                "due_date": cfg["due_date"],
                 "start_time": cfg.get("start_time"),
                 "end_time": cfg.get("end_time"),
                 "workflow_state": wf,
@@ -745,8 +746,6 @@ class Command(BaseCommand):
                 title=cfg["title"],
                 defaults=defaults,
             )
-            if assignee:
-                obj.assignees.add(assignee)
             if c:
                 created += 1
             else:

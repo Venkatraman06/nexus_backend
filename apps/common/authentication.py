@@ -42,6 +42,13 @@ class KeycloakAuthentication(BaseAuthentication):
 
             user_id = token_info.get("sub")
             if not user_id:
+                try:
+                    user_info = kc.userinfo(access_token)
+                    user_id = user_info.get("sub")
+                except Exception as e:
+                    logger.error("Userinfo fetch failed in Auth: %s", e)
+                    pass
+            if not user_id:
                 raise AuthenticationFailed("Token missing subject claim")
 
             user_info = token_info
@@ -51,9 +58,9 @@ class KeycloakAuthentication(BaseAuthentication):
             from apps.accounts.services import KeycloakSyncService
             from django.utils import timezone
 
-            user = Employee.objects.filter(keycloak_id=user_id).first()
+            user = Employee.base_objects.filter(keycloak_id=user_id).first()
             if user is None and username:
-                user = Employee.objects.filter(username=username).first()
+                user = Employee.base_objects.filter(username=username).first()
                 if user and not user.keycloak_id:
                     user.keycloak_id = user_id
                     user.last_login = timezone.now()
@@ -88,7 +95,23 @@ class KeycloakAuthentication(BaseAuthentication):
                 client_roles = []
 
             # Merge realm + client roles (deduped, existing behavior preserved)
-            request.user_permissions = list(set(realm_perms + client_roles))
+            perms = set(realm_perms + client_roles)
+            
+            # Map legacy follow-up permissions to new independent meeting permissions
+            if "pmt.crm.followup.view" in perms:
+                perms.add("pmt.crm.meeting.view")
+            if "pmt.crm.followup.create" in perms:
+                perms.add("pmt.crm.meeting.create")
+            if "pmt.crm.followup.update" in perms:
+                perms.add("pmt.crm.meeting.update")
+            if "pmt.crm.followup.delete" in perms:
+                perms.add("pmt.crm.meeting.delete")
+            if "pmt.crm.followup.transition" in perms:
+                perms.add("pmt.crm.meeting.transition")
+            if "pmt.crm.followup.view_all" in perms:
+                perms.add("pmt.crm.meeting.view_all")
+            
+            request.user_permissions = list(perms)
             request.keycloak_user_id = user_id
 
             return user, None

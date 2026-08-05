@@ -26,6 +26,7 @@ class Client(BaseModel):
     industry         = models.CharField(max_length=100, blank=True, default="")
     contact_email    = models.EmailField(blank=True, default="")
     contact_person   = models.CharField(max_length=100, blank=True, default="")
+    contact_designation = models.CharField(max_length=100, blank=True, default="")
     phone            = models.CharField(max_length=30, blank=True, default="")
     address          = models.TextField(blank=True, default="")
     pan_number       = models.CharField(max_length=10, blank=True, default="", db_index=True)

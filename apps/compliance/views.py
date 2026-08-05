@@ -3,10 +3,11 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
+from django.db.models import Count
 
 from apps.common.permissions import IsAuthenticated, HasKeycloakPermission
-from .models import HRComplianceDocument, PolicyDocument
-from .serializers import HRComplianceDocumentSerializer, PolicyDocumentSerializer
+from .models import HRComplianceDocument, PolicyDocument, PolicyDocumentAcknowledgment
+from .serializers import HRComplianceDocumentSerializer, PolicyDocumentSerializer, PolicyAcknowledgmentSerializer
 
 HR_COMPLIANCE_VIEW   = "pmt.hrms.compliance.view"
 HR_COMPLIANCE_CREATE = "pmt.hrms.compliance.create"
@@ -135,7 +136,25 @@ class PolicyDocumentListCreateView(APIView):
             qs = PolicyDocument.objects.filter(is_deleted=False)
         else:
             qs = PolicyDocument.objects.filter(is_deleted=False, is_published=True)
-        return Response(PolicyDocumentSerializer(qs, many=True).data)
+
+        # Annotate each policy with acknowledgment info for the current user
+        user = request.user
+        ack_policy_ids = set(
+            str(pid) for pid in PolicyDocumentAcknowledgment.objects.filter(employee=user)
+            .values_list("policy_id", flat=True)
+        )
+        ack_counts = {
+            str(a["policy_id"]): a["count"]
+            for a in PolicyDocumentAcknowledgment.objects.filter(
+                policy__in=qs
+            ).values("policy_id").annotate(count=Count("id"))
+        }
+        data = PolicyDocumentSerializer(qs, many=True).data
+        for item in data:
+            pid = str(item["id"])
+            item["is_acknowledged_by_me"] = pid in ack_policy_ids
+            item["acknowledgment_count"] = ack_counts.get(pid, 0)
+        return Response(data)
 
     @extend_schema(tags=["policy-documents"])
     def post(self, request):
@@ -190,3 +209,47 @@ class PolicyDocumentDetailView(APIView):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         obj.soft_delete(user=request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ── Policy Acknowledgment Endpoints ─────────────────────────────────────────────
+
+class PolicyAcknowledgeView(APIView):
+    """POST: any authenticated employee acknowledges a policy document."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(tags=["policy-documents"])
+    def post(self, request, pk):
+        try:
+            obj = PolicyDocument.objects.get(pk=pk, is_deleted=False, is_published=True)
+        except PolicyDocument.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        _, created = PolicyDocumentAcknowledgment.objects.get_or_create(
+            policy=obj,
+            employee=request.user,
+            defaults={"created_by": request.user, "updated_by": request.user},
+        )
+        return Response(
+            {"acknowledged": True, "created": created},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class PolicyAcknowledgmentsListView(APIView):
+    """GET: HR admin sees who acknowledged a policy document."""
+    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    required_permission = POLICY_CREATE
+
+    @extend_schema(tags=["policy-documents"])
+    def get(self, request, pk):
+        if not _has_perm(request, POLICY_CREATE):
+            return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            obj = PolicyDocument.objects.get(pk=pk, is_deleted=False)
+        except PolicyDocument.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        acks = PolicyDocumentAcknowledgment.objects.filter(
+            policy=obj
+        ).select_related("employee")
+        return Response(PolicyAcknowledgmentSerializer(acks, many=True, context={"request": request}).data)

@@ -82,12 +82,12 @@ class Command(BaseCommand):
         for cmd, kwargs in steps:
             if dry and cmd in ("create_permissions", "assign_role_permissions"):
                 kwargs["dry_run"] = True
-            self.stdout.write(self.style.HTTP_INFO(f"-> {cmd}"))
+            self.stdout.write(self.style.HTTP_INFO(f"→ {cmd}"))
             call_command(cmd, **kwargs)
 
         self.stdout.write(self.style.SUCCESS("\nAll demo data seeded successfully."))
         self.stdout.write(
             "\nDefault employee password: employee code (e.g. HIT-001) or ChangeMe@123\n"
-            "Keycloak groups: Admin | HR & Admin | Project Manager | Employee\n"
-            "Demo period: Mar-Jul 2026 | Clients: Powerloop, SS Battery, Kongu Nadu, YM Automation\n"
+            "Keycloak groups: Admin | Co-Founder | CTO | HR & Admin | Project Manager | Employee\n"
+            "Demo period: Mar–Jul 2026 | Clients: Powerloop, SS Battery, Kongu Nadu, YM Automation\n"
         )

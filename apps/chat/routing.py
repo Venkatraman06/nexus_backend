@@ -5,5 +5,5 @@ from core.settings import URL_PREFIX
 from .consumers import ChatConsumer
 
 websocket_urlpatterns = [
-    re_path(rf"^{URL_PREFIX}/ws/chat/$", ChatConsumer.as_asgi()),
+    re_path(r"^(?:pmt/|bms/)?ws/chat/$", ChatConsumer.as_asgi()),
 ]

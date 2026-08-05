@@ -221,7 +221,9 @@ class PaymentViewSet(BaseModelViewSet):
     def allocate(self, request, pk=None):
         """Allocate this payment against one or more invoices."""
         payment = self.get_object()
-        serializer = PaymentAllocationCreateSerializer(data=request.data)
+        context = self.get_serializer_context()
+        context["payment"] = payment
+        serializer = PaymentAllocationCreateSerializer(data=request.data, context=context)
         serializer.is_valid(raise_exception=True)
         alloc = serializer.save(
             payment=payment,

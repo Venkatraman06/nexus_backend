@@ -45,8 +45,9 @@ class AllocationCreateSerializer(serializers.ModelSerializer):
             if hasattr(exc, "message_dict"):
                 raise serializers.ValidationError(exc.message_dict)
             if hasattr(exc, "messages"):
-                raise serializers.ValidationError({"detail": exc.messages})
-            raise serializers.ValidationError(str(exc))
+                msg = exc.messages[0] if exc.messages else str(exc)
+                raise serializers.ValidationError({"detail": msg})
+            raise serializers.ValidationError({"detail": str(exc)})
         return attrs
 
 

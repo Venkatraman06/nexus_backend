@@ -54,7 +54,7 @@ class Command(BaseCommand):
 
         if invalidate:
             from apps.accounts.models import Employee
-            employees = Employee.objects.exclude(keycloak_id="")
+            employees = Employee.base_objects.exclude(keycloak_id="")
             count = 0
             for emp in employees:
                 invalidate_permissions_cache(emp.keycloak_id)

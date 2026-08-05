@@ -122,25 +122,74 @@ class PaymentAllocationSerializer(serializers.ModelSerializer):
 
 
 class PaymentAllocationCreateSerializer(serializers.ModelSerializer):
+    payment = serializers.PrimaryKeyRelatedField(
+        queryset=Payment.objects.filter(is_deleted=False),
+        required=False
+    )
+
     class Meta:
         model = PaymentAllocation
         fields = ["payment", "invoice", "allocated_amount", "notes"]
 
     def validate(self, data):
+        # Skip validation here if nested inside a parent serializer (e.g. PaymentCreateSerializer)
+        if self.parent is not None:
+            return data
+
+        # Retrieve payment from input data or from the context dictionary (e.g. passed from allocate view)
+        payment = data.get("payment") or self.context.get("payment")
+        if not payment:
+            raise serializers.ValidationError({"payment": "This field is required."})
+
         invoice = data["invoice"]
         amount  = data["allocated_amount"]
+
         # Allow slight over-payment rounding (1 paisa tolerance)
         if amount <= 0:
-            raise serializers.ValidationError("Allocated amount must be positive.")
-        if amount > invoice.pending_amount + Decimal("0.01"):
+            raise serializers.ValidationError({"allocated_amount": "Allocated amount must be positive."})
+
+        # Ensure invoice and payment belong to the same client
+        if payment.client_id != invoice.client_id:
             raise serializers.ValidationError(
-                f"Allocated amount ₹{amount} exceeds invoice pending amount ₹{invoice.pending_amount}."
+                f"Payment client '{payment.client.name}' and Invoice client '{invoice.client.name}' must be the same."
             )
-        payment = data["payment"]
-        if amount > payment.unallocated_amount + Decimal("0.01"):
+
+        # Ensure project matches if payment project and invoice project are both specified
+        if payment.project_id and invoice.project_id and invoice.project_id != payment.project_id:
             raise serializers.ValidationError(
-                f"Allocated amount ₹{amount} exceeds payment unallocated amount ₹{payment.unallocated_amount}."
+                f"Payment is restricted to project '{payment.project.name}', but Invoice belongs to project '{invoice.project.name if invoice.project else None}'."
             )
+
+        from django.db.models import Sum
+        exclude_alloc_id = getattr(self.instance, "pk", None)
+
+        # Calculate pending amount for the invoice (excluding current allocation if updating)
+        if exclude_alloc_id:
+            received_ex_self = invoice.allocations.filter(
+                payment__is_deleted=False
+            ).exclude(pk=exclude_alloc_id).aggregate(total=Sum("allocated_amount"))["total"] or Decimal("0")
+            invoice_pending = invoice.total_amount - received_ex_self
+        else:
+            invoice_pending = invoice.pending_amount
+
+        if amount > invoice_pending + Decimal("0.01"):
+            raise serializers.ValidationError(
+                f"Allocated amount ₹{amount} exceeds invoice pending amount ₹{invoice_pending}."
+            )
+
+        # Calculate unallocated amount for the payment (excluding current allocation if updating)
+        if exclude_alloc_id:
+            allocated_ex_self = payment.allocations.exclude(pk=exclude_alloc_id).aggregate(total=Sum("allocated_amount"))["total"] or Decimal("0")
+            payment_unallocated = payment.payment_amount - allocated_ex_self
+        else:
+            payment_unallocated = payment.unallocated_amount
+
+        if amount > payment_unallocated + Decimal("0.01"):
+            raise serializers.ValidationError(
+                f"Allocated amount ₹{amount} exceeds payment unallocated amount ₹{payment_unallocated}."
+            )
+
+        data["payment"] = payment
         return data
 
 
@@ -170,7 +219,7 @@ class InvoiceListSerializer(serializers.ModelSerializer):
             "invoice_amount", "tax_percentage", "tax_amount", "total_amount",
             "received_amount", "pending_amount",
             "status", "days_overdue", "is_cancelled",
-            "created_at",
+            "notes", "created_at",
         ]
 
 
@@ -257,7 +306,7 @@ class PaymentListSerializer(serializers.ModelSerializer):
             "client", "client_name",
             "project", "project_name", "project_code",
             "payment_amount", "payment_mode", "payment_mode_label",
-            "bank_reference",
+            "bank_reference", "remarks",
             "allocated_amount", "unallocated_amount",
             "created_at",
         ]
@@ -302,6 +351,47 @@ class PaymentCreateSerializer(serializers.ModelSerializer):
         amount = data.get("payment_amount", 0)
         if amount <= 0:
             raise serializers.ValidationError({"payment_amount": "Payment amount must be positive."})
+
+        # Validate nested allocations if present
+        allocations = data.get("allocations", [])
+        if allocations:
+            client = data.get("client")
+            project = data.get("project")
+            
+            total_allocated = Decimal("0")
+            for idx, alloc in enumerate(allocations):
+                invoice = alloc["invoice"]
+                alloc_amount = alloc["allocated_amount"]
+
+                if alloc_amount <= 0:
+                    raise serializers.ValidationError({"allocations": f"Allocation #{idx+1}: Allocated amount must be positive."})
+
+                # Check client matches
+                if invoice.client_id != client.id:
+                    raise serializers.ValidationError({
+                        "allocations": f"Allocation #{idx+1}: Invoice {invoice.invoice_number} belongs to client '{invoice.client.name}', but payment is for client '{client.name}'."
+                    })
+
+                # Check project matches if payment project is specified
+                if project and invoice.project_id and invoice.project_id != project.id:
+                    raise serializers.ValidationError({
+                        "allocations": f"Allocation #{idx+1}: Invoice {invoice.invoice_number} belongs to project '{invoice.project.name if invoice.project else None}', but payment is restricted to project '{project.name}'."
+                    })
+
+                # Check allocation does not exceed invoice pending amount
+                if alloc_amount > invoice.pending_amount + Decimal("0.01"):
+                    raise serializers.ValidationError({
+                        "allocations": f"Allocation #{idx+1}: Allocated amount ₹{alloc_amount} exceeds invoice pending amount ₹{invoice.pending_amount}."
+                    })
+
+                total_allocated += alloc_amount
+
+            # Check total allocated does not exceed payment amount
+            if total_allocated > amount + Decimal("0.01"):
+                raise serializers.ValidationError({
+                    "allocations": f"Total allocated amount ₹{total_allocated} exceeds payment amount ₹{amount}."
+                })
+
         return data
 
     def create(self, validated_data):
@@ -321,7 +411,7 @@ class PaymentCreateSerializer(serializers.ModelSerializer):
             # Auto-update milestone statuses
             for alloc in payment.allocations.all():
                 invoice = alloc.invoice
-                if invoice.milestone and invoice.status == "PAID":
+                if invoice.milestone and invoice.status == InvoiceStatus.PAID:
                     invoice.milestone.status = MilestoneStatus.PAID
                     invoice.milestone.save(update_fields=["status"])
         return payment

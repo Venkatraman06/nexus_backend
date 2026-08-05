@@ -7,6 +7,7 @@ from .role_views import PermissionCatalogView, RoleListView, RoleDetailView, Rol
 from .auth_views import (
     TokenView, TokenRefreshView, LogoutView, ForgotPasswordView,
     VerifyResetOtpView, ValidateResetTokenView, ResetPasswordView, OnboardSetPasswordView,
+    TOTPSetupView, TOTPVerifyEnableView, TOTPDisableView,
 )
 
 router = DefaultRouter()
@@ -16,7 +17,7 @@ router.register("employee-certificates", EmployeeCertificateViewSet, basename="e
 # Named / action paths MUST come before router.urls so the router's
 # generic  employees/<pk>/  pattern does not swallow them first.
 urlpatterns = [
-    # ── Authentication (public) ───────────────────────────
+    # ── Authentication (public & 2FA) ───────────────────────
     path("auth/token/",           TokenView.as_view(),         name="auth-token"),
     path("auth/token/refresh/",   TokenRefreshView.as_view(),  name="auth-token-refresh"),
     path("auth/logout/",          LogoutView.as_view(),        name="auth-logout"),
@@ -25,6 +26,9 @@ urlpatterns = [
     path("auth/reset-password/",            ResetPasswordView.as_view(),        name="auth-reset-password"),
     path("auth/reset-password/validate/",   ValidateResetTokenView.as_view(),   name="auth-reset-password-validate"),
     path("auth/onboard/set-password/",      OnboardSetPasswordView.as_view(),   name="auth-onboard-set-password"),
+    path("auth/totp/setup/",                TOTPSetupView.as_view(),           name="auth-totp-setup"),
+    path("auth/totp/verify-enable/",        TOTPVerifyEnableView.as_view(),    name="auth-totp-verify-enable"),
+    path("auth/totp/disable/",              TOTPDisableView.as_view(),         name="auth-totp-disable"),
 
     # ── Employee action endpoints (before router to avoid pk conflict) ─
     path("employees/org-tree/",       OrgTreeView.as_view(),           name="org-tree"),
