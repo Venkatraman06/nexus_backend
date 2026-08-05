@@ -29,9 +29,11 @@ class ReferenceType(models.TextChoices):
     MILESTONE = "milestone", "Milestone"
     PAYMENT = "payment", "Payment"
     FOLLOWUP = "followup", "Follow-up"
+    MEETING = "meeting", "Meeting"
     SOCIAL_POST = "social_post", "Social Post"
     TODO = "todo", "To-Do"
     CHAT_MESSAGE = "chat_message", "Chat Message"
+    REIMBURSEMENT = "reimbursement", "Reimbursement Claim"
 
 
 class EventType(models.TextChoices):
@@ -54,11 +56,24 @@ class EventType(models.TextChoices):
     FOLLOWUP_ASSIGNED = "followup.assigned", "Follow-up Assigned"
     FOLLOWUP_COMMENTED = "followup.commented", "Follow-up Commented"
     FOLLOWUP_UPDATED = "followup.updated", "Follow-up Updated"
+    MEETING_DUE_TODAY = "meeting.due_today", "Meeting Due Today"
+    MEETING_OVERDUE = "meeting.overdue", "Meeting Overdue"
+    MEETING_ASSIGNED = "meeting.assigned", "Meeting Assigned"
+    MEETING_COMMENTED = "meeting.commented", "Meeting Commented"
+    MEETING_UPDATED = "meeting.updated", "Meeting Updated"
     SOCIAL_POST_PENDING_APPROVAL = "social_post.pending_approval", "Social Post Pending Approval"
     SOCIAL_POST_PUBLISHED = "social_post.published", "Social Post Published"
     TODO_ASSIGNED = "todo.assigned", "To-Do Assigned"
     TODO_TRANSITIONED = "todo.transitioned", "To-Do Transitioned"
+    TODO_COMMENTED = "todo.commented", "To-Do Commented"
+    TODO_UPDATED = "todo.updated", "To-Do Updated"
     CHAT_MESSAGE_NEW = "chat.message.new", "New Chat Message"
+    REIMBURSEMENT_SUBMITTED = "reimbursement.submitted", "Reimbursement Submitted"
+    REIMBURSEMENT_APPROVED  = "reimbursement.approved", "Reimbursement Approved"
+    REIMBURSEMENT_REJECTED  = "reimbursement.rejected", "Reimbursement Rejected"
+    REIMBURSEMENT_INFO_REQUESTED = "reimbursement.info_requested", "Reimbursement Info Requested"
+    REIMBURSEMENT_PAID      = "reimbursement.paid", "Reimbursement Paid"
+
 
 
 # Channels enabled today — extend without changing call sites.

@@ -136,14 +136,23 @@ class NotificationEngine:
 
         if et == "leave.requested":
             emp_id = payload.get("employee_id")
-            groups = [list(hr_employees())]
+            groups = []
             if emp_id:
                 try:
                     emp = Employee.objects.select_related("manager").get(pk=emp_id)
                     if emp.manager:
                         groups.append([emp.manager])
+                    from apps.allocation.models import Allocation
+                    pm_allocs = Allocation.objects.filter(
+                        employee_id=emp_id, is_active=True, is_deleted=False
+                    ).select_related("project__manager")
+                    pms = [a.project.manager for a in pm_allocs if a.project and a.project.manager and a.project.manager.is_active and not a.project.manager.is_deleted]
+                    if pms:
+                        groups.append(pms)
                 except Employee.DoesNotExist:
                     pass
+            if not groups:
+                groups = [list(managers_and_pmo())]
             return exclude_actor(unique_employees(*groups), event.actor_id)
 
         if et == "payroll.finalized":
@@ -166,7 +175,31 @@ class NotificationEngine:
             # Recipients already specified in event.recipient_ids
             return []
 
+        if et == "reimbursement.submitted":
+            # Send notification to configured Reviewer / Approver, as well as HR & Finance team
+            configured_recipients = []
+            try:
+                from apps.master.models import ReimbursementConfig
+                config = ReimbursementConfig.objects.filter(is_active=True).first()
+                if config:
+                    if config.reviewer and config.reviewer.is_active and not config.reviewer.is_deleted:
+                        configured_recipients.append(config.reviewer)
+                    if config.approver and config.approver.is_active and not config.approver.is_deleted:
+                        configured_recipients.append(config.approver)
+            except Exception:
+                pass
+
+            return exclude_actor(
+                unique_employees(configured_recipients, list(hr_employees()), list(finance_employees()), list(managers_and_pmo())),
+                event.actor_id,
+            )
+
+        if et in ("reimbursement.approved", "reimbursement.rejected", "reimbursement.info_requested", "reimbursement.paid"):
+            eid = payload.get("employee_id")
+            return list(Employee.objects.filter(id=eid, is_active=True, is_deleted=False)) if eid else []
+
         return []
+
 
     @classmethod
     @transaction.atomic
@@ -240,6 +273,10 @@ class NotificationEngine:
     def _dispatch_external(channel: str, recipient, title: str, message: str, action_url: str, event: DomainEvent):
         """Stub for future Slack / Teams / WhatsApp / Push delivery; Email is implemented."""
         if channel == NotificationChannel.EMAIL:
+            # Bypass email delivery for tickets and todos
+            if event.event_type.startswith("ticket.") or event.event_type.startswith("todo."):
+                logger.info("Email notification bypassed for %s to %s", event.event_type, recipient.email)
+                return
             try:
                 from django.core.mail import send_mail
                 from django.conf import settings

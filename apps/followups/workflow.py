@@ -18,6 +18,7 @@ FOLLOWUP_TRANSITIONS = [
     ("planning",   "completed",  "Mark Done"),
     ("inprogress", "completed",  "Mark Done"),
     ("inprogress", "planning",   "Back"),
+    ("completed",  "inprogress", "Reopen"),
     ("completed",  "cancelled",  "Cancel"),
     ("cancelled",  "planning",   "Reopen"),
 ]

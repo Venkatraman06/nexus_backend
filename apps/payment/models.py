@@ -181,6 +181,27 @@ class Invoice(BaseModel):
             return max(0, delta)
         return 0
 
+    def soft_delete(self, user=None):
+        super().soft_delete(user=user)
+        if self.milestone and not self.milestone.invoices.filter(is_deleted=False, is_cancelled=False).exclude(pk=self.pk).exists():
+            self.milestone.status = MilestoneStatus.PENDING
+            self.milestone.save(update_fields=["status"])
+        for alloc in list(self.allocations.filter(is_deleted=False)):
+            payment = alloc.payment
+            alloc.soft_delete(user=user)
+            if payment and not payment.is_deleted:
+                payment.soft_delete(user=user)
+
+    def delete(self, *args, **kwargs):
+        if self.milestone and not self.milestone.invoices.filter(is_deleted=False, is_cancelled=False).exclude(pk=self.pk).exists():
+            self.milestone.status = MilestoneStatus.PENDING
+            self.milestone.save(update_fields=["status"])
+        payments = [alloc.payment for alloc in list(self.allocations.all()) if alloc.payment]
+        super().delete(*args, **kwargs)
+        for p in payments:
+            if p and Payment.objects.filter(pk=p.pk).exists():
+                p.delete()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Payment
@@ -242,6 +263,21 @@ class Payment(BaseModel):
     @property
     def unallocated_amount(self) -> Decimal:
         return self.payment_amount - self.allocated_amount
+
+    def soft_delete(self, user=None):
+        super().soft_delete(user=user)
+        for alloc in list(self.allocations.filter(is_deleted=False)):
+            invoice = alloc.invoice
+            alloc.soft_delete(user=user)
+            if invoice and not invoice.is_deleted:
+                invoice.soft_delete(user=user)
+
+    def delete(self, *args, **kwargs):
+        invoices = [alloc.invoice for alloc in list(self.allocations.all()) if alloc.invoice]
+        super().delete(*args, **kwargs)
+        for inv in invoices:
+            if inv and Invoice.objects.filter(pk=inv.pk).exists():
+                inv.delete()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

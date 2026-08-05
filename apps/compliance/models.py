@@ -68,3 +68,29 @@ class PolicyDocument(BaseModel):
 
     def __str__(self):
         return f"{self.title} v{self.version}"
+
+
+class PolicyDocumentAcknowledgment(BaseModel):
+    """
+    Records which employee has acknowledged a company-wide policy document.
+    One record per (policy, employee) pair.
+    """
+    policy = models.ForeignKey(
+        PolicyDocument,
+        on_delete=models.CASCADE,
+        related_name="acknowledgments",
+    )
+    employee = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="policy_acknowledgments",
+    )
+    acknowledged_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "policy_document_acknowledgment"
+        unique_together = [("policy", "employee")]
+        ordering = ["acknowledged_at"]
+
+    def __str__(self):
+        return f"{self.employee} → {self.policy.title}"

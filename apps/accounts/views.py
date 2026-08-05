@@ -26,8 +26,12 @@ logger = logging.getLogger(__name__)
 KEYCLOAK_DEFAULT_GROUPS = [
     "Admin",
     "CEO/Founder",
+    "Co-Founder",
+    "CTO",
     "HR Admin",
+    "HR & Admin",
     "PM/Solution Architect",
+    "Project Manager",
     "Employee",
     "Finance Team",
     "Sales/Marketing Team",
@@ -45,6 +49,19 @@ def _assign_keycloak_group(admin, keycloak_user_id: str, group_name: str):
             admin.group_user_add(keycloak_user_id, target["id"])
     except Exception as exc:
         logger.warning("_assign_keycloak_group failed (%s → %s): %s", keycloak_user_id, group_name, exc)
+
+
+def _remove_all_keycloak_groups(admin, keycloak_user_id: str):
+    """Remove a Keycloak user from ALL their current groups. Silently handles failures."""
+    try:
+        current_groups = admin.get_user_groups(keycloak_user_id)
+        for grp in current_groups:
+            try:
+                admin.group_user_remove(keycloak_user_id, grp["id"])
+            except Exception as exc:
+                logger.warning("_remove_all_keycloak_groups: failed to remove group %s for %s: %s", grp.get("name"), keycloak_user_id, exc)
+    except Exception as exc:
+        logger.warning("_remove_all_keycloak_groups: failed to fetch groups for %s: %s", keycloak_user_id, exc)
 
 
 class KeycloakGroupsView(APIView):
@@ -67,16 +84,14 @@ class KeycloakGroupsView(APIView):
 
 class EmployeeViewSet(BaseModelViewSet):
     queryset = Employee.objects.filter(is_deleted=False).select_related(
-        "designation_ref", "department_ref", "location", "grade", "employment_type"
+        "designation_ref", "department_ref", "location", "grade", "employment_type", "manager"
     )
     permission_classes = [IsAuthenticated, HasKeycloakPermission]
     ordering_fields = ["employee_code", "first_name", "last_name", "created_at", "status"]
-    ordering = ["-employee_code"]
+    ordering = ["employee_code"]
     filterset_fields = ["status", "is_pmo", "is_manager", "shift_applicable", "keycloak_group"]
 
     PERMISSION_MAP = {
-        "list":           "pmt.hrms.employee.view",
-        "retrieve":       "pmt.hrms.employee.view",
         "create":         "pmt.hrms.employee.create",
         "update":         "pmt.hrms.employee.update",
         "partial_update": "pmt.hrms.employee.update",
@@ -91,6 +106,29 @@ class EmployeeViewSet(BaseModelViewSet):
         if self.action in ["update", "partial_update"]:
             return EmployeeUpdateSerializer
         return EmployeeListSerializer
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        # If user explicitly requested custom field ordering (other than standard hierarchy ordering)
+        ordering_param = request.query_params.get("ordering")
+        if ordering_param and ordering_param not in ("hierarchy", "employee_code", "-employee_code", ""):
+            page = self.paginate_queryset(queryset)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
+            serializer = self.get_serializer(queryset, many=True)
+            return Response(serializer.data)
+
+        # Hierarchy-aware ordering
+        hierarchy_ordered = Employee.build_hierarchy_ordered_list(queryset)
+        page = self.paginate_queryset(hierarchy_ordered)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(hierarchy_ordered, many=True)
+        return Response(serializer.data)
 
     @action(detail=True, methods=["get"], url_path="performance")
     def performance(self, request, pk=None):
@@ -220,6 +258,15 @@ class EmployeeViewSet(BaseModelViewSet):
         instance.soft_delete(user=request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        group_name = serializer.validated_data.get("keycloak_group")
+        if group_name is not None:
+            group_flags = resolve_group_flags(group_name)
+            for k, v in group_flags.items():
+                setattr(instance, k, v)
+            instance.save(update_fields=list(group_flags.keys()))
+
     def partial_update(self, request, *args, **kwargs):
         # If keycloak_group is being changed, inject derived flags into the request data
         group_name = request.data.get("keycloak_group")
@@ -230,15 +277,19 @@ class EmployeeViewSet(BaseModelViewSet):
 
         response = super().partial_update(request, *args, **kwargs)
 
-        # Sync group membership in Keycloak (non-blocking)
+        # Sync group membership in Keycloak: remove old groups first, then add new one
         if group_name:
             instance = self.get_object()
             if instance.keycloak_id:
                 try:
                     from apps.accounts.auth_views import _kc_admin
-                    _assign_keycloak_group(_kc_admin(), instance.keycloak_id, group_name)
+                    admin = _kc_admin()
+                    # Remove from ALL current groups before assigning the new role
+                    _remove_all_keycloak_groups(admin, instance.keycloak_id)
+                    _assign_keycloak_group(admin, instance.keycloak_id, group_name)
                     from packages.keycloak.permissions import invalidate_permissions_cache
                     invalidate_permissions_cache(instance.keycloak_id)
+                    logger.info("Keycloak group updated for %s → %s", instance.username, group_name)
                 except Exception as exc:
                     logger.warning("Keycloak group update failed for %s: %s", instance.username, exc)
         return response
@@ -254,8 +305,8 @@ class EmployeeViewSet(BaseModelViewSet):
         # Exclude system/admin accounts that have no employee code
         qs = super().get_queryset().exclude(employee_code="")
         if self.request.query_params.get("dropdown"):
-            return qs.filter(is_active=True).exclude(status__in=[EmployeeStatus.INACTIVE, EmployeeStatus.RESIGNED])
-        return qs
+            return qs.filter(is_active=True).exclude(status__in=[EmployeeStatus.INACTIVE, EmployeeStatus.RESIGNED]).order_by("employee_code")
+        return qs.order_by("employee_code")
 
 
 class EmployeeSimpleDropdownView(APIView):
@@ -278,6 +329,11 @@ class EmployeeSimpleDropdownView(APIView):
                 "email": e.email,
                 "full_name": e.full_name,
                 "employee_code": e.employee_code,
+                "profile_picture": (
+                    request.build_absolute_uri(e.profile_picture.url)
+                    if e.profile_picture and hasattr(e.profile_picture, "url")
+                    else (e.profile_picture if isinstance(e.profile_picture, str) else None)
+                ),
                 "designation_name": e.designation_ref.name if e.designation_ref else e.designation or None,
             }
             for e in qs
@@ -405,6 +461,13 @@ class MeView(APIView):
             if "pmt.dashboard.own.view" not in effective_perms:
                 effective_perms.append("pmt.dashboard.own.view")
 
+        # Translate pmt.* -> bms.* so the frontend PERMS constants match.
+        # The frontend uses bms.* permission strings throughout; Keycloak uses pmt.*
+        def _pmt_to_bms(perm: str) -> str:
+            return "bms." + perm[4:] if perm.startswith("pmt.") else perm
+
+        effective_perms = [_pmt_to_bms(p) for p in effective_perms]
+
         return Response({
             "id":               str(me.id),
             "username":         me.username,
@@ -421,6 +484,7 @@ class MeView(APIView):
             "is_manager":       getattr(me, "is_manager", False),
             "is_staff":         is_staff,
             "is_superuser":     is_superuser,
+            "totp_enabled":     getattr(me, "totp_enabled", False),
             "permissions":      effective_perms,
             "phone_number":     getattr(me, "phone_number", "") or "",
             "bio":              getattr(me, "bio", "") or "",

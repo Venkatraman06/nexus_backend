@@ -651,32 +651,104 @@ class AttendanceExportView(APIView):
         for rec in all_records:
             rec_map[(str(rec.employee_id), rec.date)] = rec
 
-        output = io.StringIO()
-        writer = csv.writer(output)
+        import openpyxl
+        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+        from openpyxl.utils import get_column_letter
 
-        writer.writerow([f"Attendance Report — {month_name} {year}"])
-        writer.writerow([])
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = f"Attendance {month_name} {year}"
 
+        # Setup header texts
         fixed_headers   = ["Emp Code", "Full Name", "Designation", "Department"]
-        day_headers     = [f"{d.day:02d} {d.strftime('%a')}" for d in all_dates]
+        day_headers     = [f"{d.day:02d}\n{d.strftime('%a')}" for d in all_dates]
         summary_headers = ["Present", "WFH", "Half Day", "On Leave", "Absent", "Holidays", "Working Hrs"]
-        writer.writerow(fixed_headers + day_headers + summary_headers)
+        total_cols = len(fixed_headers) + len(day_headers) + len(summary_headers)
 
+        # 1. Row 1: Merged Headers
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(fixed_headers))
+        ws.merge_cells(start_row=1, start_column=len(fixed_headers)+1, end_row=1, end_column=len(fixed_headers)+len(day_headers))
+        ws.merge_cells(start_row=1, start_column=len(fixed_headers)+len(day_headers)+1, end_row=1, end_column=total_cols)
+
+        ws.cell(1, 1, "Employee Information")
+        ws.cell(1, len(fixed_headers)+1, "Daily Attendance")
+        ws.cell(1, len(fixed_headers)+len(day_headers)+1, "Monthly Summary")
+
+        # 2. Row 2: Individual Column Names
+        headers = fixed_headers + day_headers + summary_headers
+        ws.append(headers)
+
+        # 3. Formatting setup
+        font_white_bold = Font(bold=True, color="FFFFFF")
+        align_center_wrap = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        align_left_wrap = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        align_center = Alignment(horizontal="center", vertical="center")
+        align_left = Alignment(horizontal="left", vertical="center")
+        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+
+        fill_emp_info = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")     # Dark Blue
+        fill_daily = PatternFill(start_color="2F75B5", end_color="2F75B5", fill_type="solid")        # Medium Blue
+        fill_summary = PatternFill(start_color="595959", end_color="595959", fill_type="solid")      # Dark Gray
+        fill_alt_row = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")      # Light Gray for alternate rows
+
+        colors = {
+            "PRESENT": "C6E0B4",   # Green
+            "WFH": "BDD7EE",       # Blue
+            "HALF_DAY": "FCE4D6",  # Orange
+            "ON_LEAVE": "FFF2CC",  # Yellow
+            "ABSENT": "FFC7CE",    # Red
+            "HOLIDAY": "E2EFDA",   # Light Green/Purple (Requested Purple: E4DFEC)
+            "WEEKEND": "D9D9D9",   # Gray
+        }
+        colors["HOLIDAY"] = "E4DFEC"
+        fills = {k: PatternFill(start_color=v, end_color=v, fill_type="solid") for k,v in colors.items()}
+
+        # Apply header formatting (Row 1 & 2)
+        for row_num in (1, 2):
+            for col_num in range(1, total_cols + 1):
+                cell = ws.cell(row=row_num, column=col_num)
+                cell.font = font_white_bold
+                cell.border = thin_border
+                if col_num <= len(fixed_headers):
+                    cell.fill = fill_emp_info
+                    cell.alignment = align_center_wrap if row_num == 1 else align_left_wrap
+                elif col_num <= len(fixed_headers) + len(day_headers):
+                    cell.fill = fill_daily
+                    cell.alignment = align_center_wrap
+                else:
+                    cell.fill = fill_summary
+                    cell.alignment = align_center_wrap
+
+        ws.row_dimensions[1].height = 25
+        ws.row_dimensions[2].height = 35
+
+        # 4. Write Data rows
+        row_idx = 3
         for emp in employees:
             desig = emp.designation_ref.name if emp.designation_ref_id else (emp.designation or "")
             dept  = emp.department_ref.name  if emp.department_ref_id  else (emp.department  or "")
 
             cnt = {k: 0 for k in ("present", "wfh", "half_day", "on_leave", "absent", "holiday")}
             total_working_hrs = 0.0
-            day_cells = []
 
-            for d in all_dates:
+            # Alternate row fill
+            row_fill = fill_alt_row if row_idx % 2 == 0 else None
+
+            # Employee Info
+            for c_idx, val in enumerate([emp.employee_code, emp.full_name, desig, dept], 1):
+                cell = ws.cell(row=row_idx, column=c_idx, value=val)
+                cell.alignment = align_left
+                cell.border = thin_border
+                if row_fill: cell.fill = row_fill
+
+            # Daily Attendance
+            for i, d in enumerate(all_dates):
                 rec = rec_map.get((str(emp.id), d))
                 if rec:
                     stat = rec.status
                     code = STATUS_CODE.get(stat, stat)
                     if rec.check_in and stat in ("PRESENT", "WFH", "HALF_DAY"):
-                        code = f"{code} {rec.check_in.strftime('%H:%M')}"
+                        code = f"{code}\n{rec.check_in.strftime('%H:%M')}"
                     total_working_hrs += rec.working_hours
                 else:
                     stat = "WEEKEND" if d.weekday() >= 5 else "ABSENT"
@@ -685,24 +757,62 @@ class AttendanceExportView(APIView):
                 stat_key = stat.lower()
                 if stat_key in cnt:
                     cnt[stat_key] += 1
-                day_cells.append(code)
 
+                col_num = len(fixed_headers) + 1 + i
+                cell = ws.cell(row=row_idx, column=col_num, value=code)
+                cell.alignment = align_center_wrap
+                cell.border = thin_border
+                if stat in fills:
+                    cell.fill = fills[stat]
+
+            # Summary Info
             summary_cells = [
                 cnt["present"], cnt["wfh"], cnt["half_day"],
                 cnt["on_leave"], cnt["absent"], cnt["holiday"],
                 round(total_working_hrs, 2),
             ]
-            writer.writerow([emp.employee_code, emp.full_name, desig, dept] + day_cells + summary_cells)
+            for j, val in enumerate(summary_cells):
+                col_num = len(fixed_headers) + len(day_headers) + 1 + j
+                cell = ws.cell(row=row_idx, column=col_num, value=val)
+                cell.alignment = align_center
+                cell.border = thin_border
+                if row_fill: cell.fill = row_fill
 
-        writer.writerow([])
-        writer.writerow(["Legend:",
-            "P=Present", "WFH=Work From Home", "HD=Half Day",
-            "OL=On Leave", "HOL=Holiday", "—=Weekend", "ABS=Absent",
-        ])
+            row_idx += 1
 
+        # Adjust column widths
+        ws.column_dimensions['A'].width = 12
+        ws.column_dimensions['B'].width = 25
+        ws.column_dimensions['C'].width = 20
+        ws.column_dimensions['D'].width = 20
+        for i in range(len(all_dates)):
+            ws.column_dimensions[get_column_letter(len(fixed_headers) + 1 + i)].width = 7
+        for j in range(len(summary_headers)):
+            ws.column_dimensions[get_column_letter(len(fixed_headers) + len(day_headers) + 1 + j)].width = 11
+
+        # 5. Freeze Panes & AutoFilter
+        ws.freeze_panes = "E3"
+        ws.auto_filter.ref = f"A2:{get_column_letter(total_cols)}{row_idx-1}"
+
+        # Legend
+        row_idx += 1
+        ws.cell(row=row_idx, column=1, value="Legend:").font = Font(bold=True)
+        legend = [
+            "P = Present", "WFH = Work From Home", "HD = Half Day",
+            "OL = On Leave", "HOL = Holiday", "— = Weekend", "ABS = Absent"
+        ]
+        for idx, leg_item in enumerate(legend):
+            ws.cell(row=row_idx + 1 + idx, column=1, value=leg_item)
+
+        output = io.BytesIO()
+        wb.save(output)
+        
         ts       = today.strftime("%Y_%m_%d_%H%M")
-        filename = f"attendance_report_{year}_{str(month).zfill(2)}_{ts}.csv"
-        response = HttpResponse(output.getvalue(), content_type="text/csv; charset=utf-8")
+        filename = f"attendance_report_{year}_{str(month).zfill(2)}_{ts}.xlsx"
+        response = HttpResponse(
+            output.getvalue(), 
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
 
@@ -827,11 +937,55 @@ class MyLeaveBalancesView(APIView):
 
     @extend_schema(tags=["leave"])
     def get(self, request):
-        year     = int(request.query_params.get("year", date.today().year))
+        today = date.today()
+        current_cal_year = today.year
+        fy_year = current_cal_year if today.month >= 4 else current_cal_year - 1
+
+        year_param = request.query_params.get("year")
+        target_year = int(year_param) if year_param else fy_year
+
         balances = LeaveBalance.objects.filter(
-            employee=request.user, year=year
-        ).select_related("leave_type")
-        return Response(LeaveBalanceSerializer(balances, many=True).data)
+            employee=request.user, year=target_year
+        ).select_related("leave_type").order_by("leave_type__name")
+
+        if not balances.exists():
+            latest_year = LeaveBalance.objects.filter(
+                employee=request.user
+            ).order_by("-year").values_list("year", flat=True).first()
+            if latest_year:
+                target_year = latest_year
+                balances = LeaveBalance.objects.filter(
+                    employee=request.user, year=target_year
+                ).select_related("leave_type").order_by("leave_type__name")
+
+        from apps.master.models import LeaveType
+        active_types = LeaveType.objects.filter(is_active=True)
+        for lt in active_types:
+            has_bal = LeaveBalance.objects.filter(
+                employee=request.user,
+                leave_type=lt,
+                year=target_year
+            ).exists()
+            if not has_bal:
+                LeaveBalance.objects.get_or_create(
+                    employee=request.user,
+                    leave_type=lt,
+                    year=target_year,
+                    defaults={"total_days": lt.max_days or 0, "used_days": 0}
+                )
+
+        balances = LeaveBalance.objects.filter(
+            employee=request.user, year=target_year
+        ).select_related("leave_type").order_by("leave_type__name")
+
+        unique_balances = []
+        seen_leave_type_ids = set()
+        for b in balances:
+            if b.leave_type_id not in seen_leave_type_ids:
+                unique_balances.append(b)
+                seen_leave_type_ids.add(b.leave_type_id)
+
+        return Response(LeaveBalanceSerializer(unique_balances, many=True).data)
 
 
 class MyLeaveRequestListView(APIView):
@@ -857,36 +1011,13 @@ class MyLeaveRequestListView(APIView):
             leave.reviewer_remarks = "Auto-approved as CEO"
             leave.save()
 
-        # Get project managers for the employee
-        from .leave_utils import get_project_managers_for_employee
-        project_managers = get_project_managers_for_employee(request.user)
+        from apps.notifications.constants import EventType, ReferenceType
+        from apps.notifications.publisher import publish_event
         
-        # Send notifications to project managers
-        if project_managers:
-            leave.is_acknowledged = False
-            leave.save(update_fields=['is_acknowledged'])
-            for manager in project_managers:
-                publish_event(
-                    EventType.LEAVE_REQUESTED,
-                    ReferenceType.LEAVE,
-                    str(leave.id),
-                    payload={
-                        "employee_id": str(request.user.id),
-                        "employee_name": request.user.full_name,
-                        "leave_type": leave.leave_type.name if leave.leave_type else "",
-                        "start_date": leave.start_date.isoformat(),
-                        "end_date": leave.end_date.isoformat(),
-                        "days_count": leave.days_count,
-                        "notification_target": "project_manager",
-                        "project_manager_id": str(manager.id),
-                    },
-                    actor_id=str(request.user.id),
-                    recipient_ids=[str(manager.id)],
-                    async_delivery=True,
-                )
-        else:
-            leave.is_acknowledged = True
-            leave.save(update_fields=['is_acknowledged'])
+        reporting_manager = request.user.manager
+
+        # Send notification ONLY to Reporting Manager (if assigned), else fallback
+        if reporting_manager:
             publish_event(
                 EventType.LEAVE_REQUESTED,
                 ReferenceType.LEAVE,
@@ -897,12 +1028,30 @@ class MyLeaveRequestListView(APIView):
                     "leave_type": leave.leave_type.name if leave.leave_type else "",
                     "start_date": leave.start_date.isoformat(),
                     "end_date": leave.end_date.isoformat(),
-                    "days_count": leave.days_count,
+                    "days_count": float(leave.days_count),
+                    "notification_target": "reporting_manager",
+                    "manager_id": str(reporting_manager.id),
+                },
+                actor_id=str(request.user.id),
+                recipient_ids=[str(reporting_manager.id)],
+                async_delivery=True,
+            )
+        else:
+            publish_event(
+                EventType.LEAVE_REQUESTED,
+                ReferenceType.LEAVE,
+                str(leave.id),
+                payload={
+                    "employee_id": str(request.user.id),
+                    "employee_name": request.user.full_name,
+                    "leave_type": leave.leave_type.name if leave.leave_type else "",
+                    "start_date": leave.start_date.isoformat(),
+                    "end_date": leave.end_date.isoformat(),
+                    "days_count": float(leave.days_count),
                 },
                 actor_id=str(request.user.id),
                 async_delivery=True,
             )
-        
 
         return Response(LeaveRequestSerializer(leave).data, status=status.HTTP_201_CREATED)
 
@@ -978,16 +1127,12 @@ class LeaveAcknowledgeView(APIView):
         if leave.status != LeaveRequestStatus.PENDING or leave.is_acknowledged:
             return Response({"detail": "Cannot acknowledge this request."}, status=status.HTTP_400_BAD_REQUEST)
             
-        from .leave_utils import get_project_managers_for_employee
-        project_managers = get_project_managers_for_employee(leave.employee)
-        is_pm = any(manager.id == request.user.id for manager in project_managers)
-        
-        if not is_pm:
-            return Response({"detail": "Only project managers can acknowledge."}, status=status.HTTP_403_FORBIDDEN)
+        if leave.employee.manager != request.user:
+            return Response({"detail": "Only the reporting manager can acknowledge."}, status=status.HTTP_403_FORBIDDEN)
             
         remarks = request.data.get("remarks", "").strip()
         if remarks:
-            leave.reviewer_remarks = f"PM Acknowledged: {remarks}"
+            leave.reviewer_remarks = f"RM Acknowledged: {remarks}"
             
         leave.is_acknowledged = True
         leave.save(update_fields=['is_acknowledged', 'reviewer_remarks'])
@@ -1035,22 +1180,36 @@ class LeaveReviewView(APIView):
         if leave.status != LeaveRequestStatus.PENDING:
             return Response({"detail": "Only PENDING requests can be reviewed."}, status=status.HTTP_400_BAD_REQUEST)
 
-        is_ceo = (request.user.designation_ref and request.user.designation_ref.name.lower() == "ceo") or (request.user.designation and request.user.designation.lower() == "ceo")
+        desig_ref_name = getattr(getattr(request.user, "designation_ref", None), "name", None)
+        desig_str = getattr(request.user, "designation", None)
+        is_ceo = (desig_ref_name and str(desig_ref_name).lower() == "ceo") or (desig_str and str(desig_str).lower() == "ceo")
 
         # Disable self-approval for non-CEOs
         if leave.employee == request.user and not is_ceo:
             return Response({"detail": "You cannot approve your own leave request."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Only HR can approve (or CEO for their own leave)
-        is_hr = request.user.keycloak_group and request.user.keycloak_group.lower() == "hr"
-        is_authorized = is_hr
-        
-        if is_ceo and leave.employee == request.user:
-            is_authorized = True
+        # Authorization check: reporting manager, manager hierarchy, project manager, admin, or HR fallback
+        user_perms = getattr(request, "user_permissions", [])
+        reporting_map = get_reporting_hierarchy_map(request.user)
+
+        from apps.allocation.models import Allocation
+        pm_allocations = Allocation.objects.filter(
+            project__manager=request.user,
+            is_deleted=False,
+            is_active=True
+        ).exclude(employee=request.user)
+        pm_emp_ids = {str(alloc.employee_id) for alloc in pm_allocations}
+
+        is_reporting_manager = (leave.employee.manager_id == request.user.id) or (str(leave.employee_id) in reporting_map) or is_in_manager_chain(request.user, leave.employee)
+        is_pm = (str(leave.employee_id) in pm_emp_ids) or self._is_authorized_reviewer(request.user, leave.employee)
+        is_admin_or_ceo = request.user.is_superuser or is_ceo
+        is_hr = "pmt.hrms.leave.approve" in user_perms or (request.user.keycloak_group and request.user.keycloak_group.lower() == "hr")
+
+        is_authorized = is_reporting_manager or is_pm or is_admin_or_ceo or is_hr or (not leave.employee.manager_id)
 
         if not is_authorized:
             return Response(
-                {"detail": "You are not authorized to review this leave request. Only HR can approve."},
+                {"detail": "You are not authorized to review this leave request. Only reporting manager or authorized manager can approve."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -1063,46 +1222,71 @@ class LeaveReviewView(APIView):
         leave.save(update_fields=["status", "reviewer", "reviewer_remarks"])
 
         if leave.status == LeaveRequestStatus.APPROVED:
-            # ── Skip balance deduction if exempt (emergency leave with medical certificate) ──
-            if not getattr(leave, "exempt_from_balance", False):
+            # ── Skip balance deduction if exempt (emergency leave with proof) ──
+            if not getattr(leave, "exempt_from_balance", False) and leave.leave_type:
+                from decimal import Decimal
+                max_d = getattr(leave.leave_type, "max_days", 0) or 0
                 balance, _ = LeaveBalance.objects.get_or_create(
                     employee=leave.employee,
                     leave_type=leave.leave_type,
                     year=leave.start_date.year,
-                    defaults={"total_days": leave.leave_type.max_days, "used_days": 0},
+                    defaults={"total_days": max_d, "used_days": Decimal("0")},
                 )
-                balance.used_days = float(balance.used_days) + float(leave.days_count)
+                curr_used = Decimal(str(balance.used_days or 0))
+                days_add = Decimal(str(leave.days_count or 0))
+                balance.used_days = curr_used + days_add
                 balance.save(update_fields=["used_days"])
 
+            # ── Auto-create or update AttendanceRecords as ON_LEAVE for the leave period ──
+            if leave.start_date and leave.end_date:
+                curr_d = leave.start_date
+                while curr_d <= leave.end_date:
+                    rec, _ = AttendanceRecord.objects.get_or_create(
+                        employee=leave.employee,
+                        date=curr_d,
+                        defaults={
+                            "status": AttendanceStatus.ON_LEAVE,
+                            "notes": f"Leave: {leave.leave_type.name if leave.leave_type else 'Approved Leave'}"
+                        }
+                    )
+                    if rec.status not in (AttendanceStatus.PRESENT, AttendanceStatus.WFH):
+                        rec.status = AttendanceStatus.ON_LEAVE
+                        rec.notes  = f"Leave: {leave.leave_type.name if leave.leave_type else 'Approved Leave'}"
+                        rec.save(update_fields=["status", "notes"])
+                    curr_d += timedelta(days=1)
+
         # Send notification about the review decision
-        from apps.notifications.constants import EventType, ReferenceType
-        from apps.notifications.publisher import publish_event
-        
-        if leave.status == LeaveRequestStatus.APPROVED:
-            event_type = EventType.LEAVE_APPROVED
-        else:
-            event_type = EventType.LEAVE_REJECTED
+        try:
+            from apps.notifications.constants import EventType, ReferenceType
+            from apps.notifications.publisher import publish_event
             
-        publish_event(
-            event_type,
-            ReferenceType.LEAVE,
-            str(leave.id),
-            payload={
-                "employee_id": str(leave.employee.id),
-                "employee_name": leave.employee.full_name,
-                "reviewer_id": str(request.user.id),
-                "reviewer_name": request.user.full_name,
-                "leave_type": leave.leave_type.name if leave.leave_type else "",
-                "start_date": leave.start_date.isoformat(),
-                "end_date": leave.end_date.isoformat(),
-                "days_count": leave.days_count,
-                "status": leave.status,
-                "remarks": leave.reviewer_remarks,
-            },
-            actor_id=str(request.user.id),
-            recipient_ids=[str(leave.employee.id)],  # Notify the employee
-            async_delivery=True,
-        )
+            if leave.status == LeaveRequestStatus.APPROVED:
+                event_type = EventType.LEAVE_APPROVED
+            else:
+                event_type = EventType.LEAVE_REJECTED
+                
+            publish_event(
+                event_type,
+                ReferenceType.LEAVE,
+                str(leave.id),
+                payload={
+                    "employee_id": str(leave.employee.id),
+                    "employee_name": leave.employee.full_name,
+                    "reviewer_id": str(request.user.id),
+                    "reviewer_name": request.user.full_name,
+                    "leave_type": leave.leave_type.name if leave.leave_type else "",
+                    "start_date": leave.start_date.isoformat() if leave.start_date else "",
+                    "end_date": leave.end_date.isoformat() if leave.end_date else "",
+                    "days_count": float(leave.days_count or 0),
+                    "status": leave.status,
+                    "remarks": leave.reviewer_remarks or "",
+                },
+                actor_id=str(request.user.id),
+                recipient_ids=[str(leave.employee.id)] if leave.employee else None,
+                async_delivery=True,
+            )
+        except Exception as err:
+            logger.warning("Failed to publish leave review notification: %s", err)
 
         return Response(LeaveRequestSerializer(leave).data)
 
@@ -1113,13 +1297,40 @@ class LeaveTeamMetaView(APIView):
     @extend_schema(tags=["leave"])
     def get(self, request):
         reporting_map = get_reporting_hierarchy_map(request.user)
+        
+        from apps.allocation.models import Allocation
+        pm_allocations = Allocation.objects.filter(
+            project__manager=request.user,
+            is_deleted=False,
+            is_active=True
+        ).exclude(employee=request.user)
+        
+        for alloc in pm_allocations:
+            if str(alloc.employee_id) not in reporting_map:
+                reporting_map[str(alloc.employee_id)] = "project"
+
+        is_ceo = (request.user.designation_ref and request.user.designation_ref.name.lower() == "ceo") or (request.user.designation and request.user.designation.lower() == "ceo")
+        if request.user.is_superuser or is_ceo:
+            all_emp_ids = account_models.Employee.objects.filter(is_active=True, is_deleted=False).exclude(id=request.user.id).values_list("id", flat=True)
+            for eid in all_emp_ids:
+                if str(eid) not in reporting_map:
+                    reporting_map[str(eid)] = "all"
+
         direct_count = sum(1 for lvl in reporting_map.values() if lvl == "direct")
-        indirect_count = sum(1 for lvl in reporting_map.values() if lvl == "indirect")
+        indirect_count = sum(1 for lvl in reporting_map.values() if lvl in ("indirect", "project", "all"))
+        pending_count = LeaveRequest.objects.filter(
+            employee_id__in=reporting_map.keys(),
+            status="PENDING",
+            is_deleted=False
+        ).exclude(employee=request.user).count()
+
         return Response({
             "has_team": len(reporting_map) > 0,
+            "pending_count": pending_count,
             "direct_count": direct_count,
             "indirect_count": indirect_count,
         })
+
 
 
 class LeaveTeamRequestsView(APIView):
@@ -1170,12 +1381,24 @@ class LeaveTeamRequestsView(APIView):
             is_deleted=False
         ).count()
 
+        is_ceo = (request.user.designation_ref and request.user.designation_ref.name.lower() == "ceo") or (request.user.designation and request.user.designation.lower() == "ceo")
+
         results = []
         for lr in qs:
             lvl = reporting_map[str(lr.employee_id)]
-            is_hr = request.user.keycloak_group and request.user.keycloak_group.lower() == "hr"
-            can_approve = is_hr and (lr.status == "PENDING") and (lr.employee != request.user) and lr.is_acknowledged
-            can_ack = str(lr.employee_id) in pm_emp_ids and not lr.is_acknowledged and (lr.status == "PENDING")
+            is_direct_rm = (lr.employee.manager_id == request.user.id) or (lvl == "direct")
+            is_pm_rev = (lvl == "project") or (str(lr.employee_id) in pm_emp_ids)
+            is_admin_or_ceo = request.user.is_superuser or is_ceo
+
+            can_approve = (lr.status == "PENDING") and (lr.employee != request.user) and (
+                is_direct_rm or is_pm_rev or is_admin_or_ceo or not lr.employee.manager_id
+            )
+            can_ack = False
+
+            med_cert_url = request.build_absolute_uri(lr.medical_certificate.url) if lr.medical_certificate else None
+            is_emerg = getattr(lr, "is_emergency", False)
+            exempt = bool(is_emerg and lr.medical_certificate)
+
             results.append({
                 "id": str(lr.id),
                 "employee": lr.employee.full_name,
@@ -1187,13 +1410,16 @@ class LeaveTeamRequestsView(APIView):
                 "days_count": float(lr.days_count),
                 "reason": lr.reason,
                 "status": lr.status,
-                "acknowledged_by": None,
+                "acknowledged_by": lr.employee.manager.full_name if lr.is_acknowledged and lr.employee.manager else None,
                 "ack_project": None,
                 "created_at": str(lr.created_at.date()),
                 "reporting_level": lvl,
                 "can_approve": can_approve,
                 "can_ack": can_ack,
-                "can_view_only": not (can_approve or can_ack),
+                "can_view_only": not can_approve,
+                "medical_certificate": med_cert_url,
+                "is_emergency": is_emerg,
+                "exempt_from_balance": exempt,
             })
 
         return Response({
@@ -1209,12 +1435,6 @@ class AdminLeaveRequestListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from apps.allocation.models import Allocation
-        pm_allocations = Allocation.objects.filter(
-            project__manager=request.user, is_deleted=False, is_active=True
-        ).exclude(employee=request.user)
-        pm_emp_ids = {str(a.employee_id) for a in pm_allocations}
-        
         qs = LeaveRequest.objects.filter(is_deleted=False).select_related(
             "employee", "leave_type", "reviewer"
         ).order_by("-created_at")
@@ -1237,6 +1457,16 @@ class AdminLeaveRequestListView(APIView):
             ),
         }
 
+        from apps.allocation.models import Allocation
+        pm_allocations = Allocation.objects.filter(
+            project__manager=request.user,
+            is_deleted=False,
+            is_active=True
+        ).exclude(employee=request.user)
+        pm_emp_ids = {str(alloc.employee_id) for alloc in pm_allocations}
+
+        is_ceo = (request.user.designation_ref and request.user.designation_ref.name.lower() == "ceo") or (request.user.designation and request.user.designation.lower() == "ceo")
+
         data = [
             {
                 "id":               str(lr.id),
@@ -1252,8 +1482,12 @@ class AdminLeaveRequestListView(APIView):
                 "reviewer":         lr.reviewer.full_name if lr.reviewer_id else None,
                 "reviewer_remarks": lr.reviewer_remarks,
                 "created_at":       str(lr.created_at.date()),
-                "can_approve":      (lr.status == LeaveRequestStatus.PENDING) and (lr.employee != request.user) and (request.user.keycloak_group and request.user.keycloak_group.lower() == "hr") and lr.is_acknowledged,
-                "can_ack":          (lr.status == LeaveRequestStatus.PENDING) and not lr.is_acknowledged and (str(lr.employee_id) in pm_emp_ids),
+                "acknowledged_by":  lr.employee.manager.full_name if lr.is_acknowledged and lr.employee.manager else None,
+                "can_approve":      (lr.status == LeaveRequestStatus.PENDING) and (lr.employee != request.user) and (lr.employee.manager_id == request.user.id or str(lr.employee_id) in pm_emp_ids or request.user.is_superuser or is_ceo or not lr.employee.manager_id),
+                "can_ack":          False,
+                "is_emergency":     getattr(lr, "is_emergency", False),
+                "medical_certificate": request.build_absolute_uri(lr.medical_certificate.url) if lr.medical_certificate else None,
+                "exempt_from_balance": bool(getattr(lr, "is_emergency", False) and lr.medical_certificate),
             }
             for lr in qs
         ]
@@ -1381,34 +1615,16 @@ class LeaveAssignView(APIView):
             cf_days     = eligible_carry_forward_days(emp, leave_type, fy_start_year) if carry_forward else Decimal("0")
             final_total = total_days + cf_days
 
-            if LeaveBalance.objects.filter(employee=emp, leave_type=leave_type, year=fy_start_year).exists():
-                counts["duplicate"] += 1
-                results.append({
-                    "employee_id": str(emp.id), "employee_name": emp.full_name,
-                    "status": "duplicate",
-                    "message": f"Already assigned for {fy_label(fy_start_year)}.",
-                })
-                continue
-
-            if leave_type.max_days and final_total > leave_type.max_days:
-                counts["max_days_exceeded"] += 1
-                results.append({
-                    "employee_id": str(emp.id), "employee_name": emp.full_name,
-                    "status": "max_days_exceeded",
-                    "message": f"{final_total} day(s) exceeds the {leave_type.max_days}-day max for {leave_type.name}.",
-                })
-                continue
-
-            LeaveBalance.objects.create(
+            bal, created = LeaveBalance.objects.update_or_create(
                 employee=emp, leave_type=leave_type, year=fy_start_year,
-                total_days=final_total, used_days=0,
+                defaults={"total_days": final_total}
             )
             counts["assigned"] += 1
             results.append({
                 "employee_id": str(emp.id), "employee_name": emp.full_name,
-                "status": "assigned",
+                "status": "assigned" if created else "updated",
                 "message": (
-                    f"Assigned {final_total} day(s)"
+                    f"{'Assigned' if created else 'Updated'} {final_total} day(s)"
                     + (f" (incl. {cf_days} carried forward)" if cf_days > 0 else "")
                     + f" for {fy_label(fy_start_year)}."
                 ),
@@ -2512,9 +2728,19 @@ class AttendanceMonthlyReportView(APIView):
             return Response({"detail": "Invalid year/month."}, status=status.HTTP_400_BAD_REQUEST)
 
         is_ceo = getattr(request.user, "is_superuser", False)
+        manager_id = request.query_params.get("reporting_manager")
         try:
             if is_ceo:
-                report = AttendanceMonthlyReport.objects.get(year=year, month=month, is_deleted=False)
+                if manager_id:
+                    report = AttendanceMonthlyReport.objects.get(
+                        year=year, month=month, reporting_manager_id=manager_id, is_deleted=False
+                    )
+                else:
+                    report = AttendanceMonthlyReport.objects.filter(
+                        year=year, month=month, is_deleted=False
+                    ).first()
+                    if not report:
+                        return Response(None, status=status.HTTP_200_OK)
             else:
                 # PM sees only their own submission
                 report = AttendanceMonthlyReport.objects.get(
@@ -2551,9 +2777,15 @@ class AttendanceMonthlyReportView(APIView):
         except (ValueError, TypeError):
             return Response({"detail": "Invalid year/month."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Each PM can submit once per month
-        if AttendanceMonthlyReport.objects.filter(year=year, month=month, reporting_manager=request.user, is_deleted=False).exists():
-            return Response({"detail": "You have already submitted the report for this month."}, status=status.HTTP_400_BAD_REQUEST)
+        # Allow resubmission if previously rejected by soft-deleting the rejected report
+        existing = AttendanceMonthlyReport.objects.filter(
+            year=year, month=month, reporting_manager=request.user, is_deleted=False
+        ).first()
+        if existing:
+            if existing.status == AttendanceReportStatus.REJECTED_BY_CEO:
+                existing.soft_delete(user=request.user)
+            else:
+                return Response({"detail": "You have already submitted the report for this month."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Build summary
         if team_ids:
@@ -2690,17 +2922,36 @@ class AttendanceMonthlyReportReviewView(APIView):
 
 class AttendanceMonthlyReportListView(APIView):
     """
-    GET /attendance/monthly-report/list/
-    CEO: all reports.  PM: only their submissions.
+    GET /attendance/monthly-report/list/?year=YYYY&month=MM
+    CEO: all reports (optionally filtered by month/year). PM: only their submissions.
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         from .models import AttendanceMonthlyReport
         is_ceo = getattr(request.user, "is_superuser", False)
-        qs = AttendanceMonthlyReport.objects.filter(is_deleted=False).order_by("-year", "-month")[:24]
+        year  = request.query_params.get("year")
+        month = request.query_params.get("month")
+
+        qs = AttendanceMonthlyReport.objects.filter(is_deleted=False).order_by("-year", "-month")
+        if year:
+            try:
+                qs = qs.filter(year=int(year))
+            except ValueError:
+                pass
+        if month:
+            try:
+                qs = qs.filter(month=int(month))
+            except ValueError:
+                pass
+
         if not is_ceo:
             qs = qs.filter(reporting_manager=request.user)
+        else:
+            # For CEO, if no month/year is specified, we limit to latest 24 reports
+            if not year and not month:
+                qs = qs[:24]
+
         return Response([_report_dict(r) for r in qs])
 
 

@@ -7,7 +7,6 @@ from packages.workflow.field import StateField
 class FollowUpType(models.TextChoices):
     EMAIL      = "EMAIL",      "Email"
     CALL       = "CALL",       "Call"
-    MEETING    = "MEETING",    "Meeting"
     WHATSAPP   = "WHATSAPP",   "WhatsApp"
     SITE_VISIT = "SITE_VISIT", "Site Visit"
 

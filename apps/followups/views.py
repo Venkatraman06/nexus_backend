@@ -13,6 +13,7 @@ from .filters import FollowUpFilter
 from .models import FollowUp
 from .workflow import assign_initial_state, ensure_followup_workflow, proceed_followup
 from .serializers import (
+    CommentsUpdateSerializer,
     FollowUpCreateSerializer,
     FollowUpDetailSerializer,
     FollowUpListSerializer,
@@ -26,30 +27,24 @@ class FollowUpViewSet(BaseModelViewSet):
     ).select_related(
         "reporter", "workflow_state",
     ).filter(is_deleted=False)
-    permission_classes = [IsAuthenticated, HasKeycloakPermission]
+    permission_classes = [IsAuthenticated]
     pagination_class = DefaultListPagination
     filterset_class = FollowUpFilter
     search_fields = ["title", "description", "comments"]
     ordering_fields = ["created_at", "start_date", "end_date", "title"]
     ordering = ["-created_at"]
 
-    PERMISSION_MAP = {
-        "list":           "pmt.crm.followup.view",
-        "retrieve":       "pmt.crm.followup.view",
-        "create":         "pmt.crm.followup.create",
-        "update":         "pmt.crm.followup.update",
-        "partial_update": "pmt.crm.followup.update",
-        "destroy":        "pmt.crm.followup.delete",
-        "transition":     "pmt.crm.followup.transition",
-        "board":          "pmt.crm.followup.view",
-    }
-
     VIEW_ALL_PERMISSION = "pmt.crm.followup.view_all"
 
     def get_serializer_class(self):
         if self.action == "retrieve":
             return FollowUpDetailSerializer
-        if self.action in ("create", "update", "partial_update"):
+        if self.action == "partial_update":
+            # Use lightweight serializer when only updating comments
+            if self.request and set(self.request.data.keys()) <= {"comments"}:
+                return CommentsUpdateSerializer
+            return FollowUpCreateSerializer
+        if self.action in ("create", "update"):
             return FollowUpCreateSerializer
         return FollowUpListSerializer
 
@@ -67,6 +62,11 @@ class FollowUpViewSet(BaseModelViewSet):
     def _scoped_queryset(self, qs=None):
         """Assignee or reporter (creator) only, unless view_all."""
         qs = qs if qs is not None else super().get_queryset()
+        
+        # Exclude meetings from FollowUpViewSet query (MeetingViewSet overrides get_queryset)
+        if self.__class__.__name__ == "FollowUpViewSet":
+            qs = qs.exclude(type="MEETING")
+        
         if self._can_view_all():
             return qs
         uid = self.request.user.pk
@@ -79,8 +79,11 @@ class FollowUpViewSet(BaseModelViewSet):
         if self._can_view_all():
             return True
         user = self.request.user
+        user_perms = getattr(self.request, "user_permissions", [])
+        if "pmt.crm.followup.transition" in user_perms:
+            return True
         uid = user.pk
-        return followup.assignees.filter(id=uid).exists() or followup.reporter_id == uid
+        return followup.assignees.filter(id=uid).exists() or followup.reporter_id == uid or followup.created_by_id == uid
 
     def list(self, request, *args, **kwargs):
         ensure_followup_workflow()
@@ -235,3 +238,7 @@ class FollowUpViewSet(BaseModelViewSet):
             columns.setdefault(slug, []).append(item)
         visible_count = sum(len(v) for v in columns.values())
         return Response({"columns": columns, "count": visible_count})
+
+
+
+

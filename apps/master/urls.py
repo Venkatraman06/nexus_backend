@@ -12,6 +12,7 @@ from .views import (
     FollowupTypeViewSet, FollowupTypeDropdownView,
     LeaveTypeViewSet, LeavePolicyRuleViewSet, LeaveBalanceAssignView,
     CreateMyLeaveTypeView, HolidayViewSet,
+    ReimbursementConfigView,
 )
 
 router = DefaultRouter()
@@ -30,6 +31,7 @@ router.register("master/leave/types",        LeaveTypeViewSet,         basename=
 router.register("master/leave/policy-rules", LeavePolicyRuleViewSet,   basename="leave-policy-rule")
 
 router.register("master/holidays", HolidayViewSet, basename="holiday")
+# NOTE: ReimbursementConfig is a singleton — no router registration.
 
 urlpatterns = router.urls + [
     path("master/dropdown/designations/",       DesignationDropdownView.as_view(),    name="dropdown-designations"),
@@ -44,4 +46,6 @@ urlpatterns = router.urls + [
     path("master/dropdown/followup-types/",     FollowupTypeDropdownView.as_view(),   name="dropdown-followup-types"),
     path("master/leave/balances/assign/",        LeaveBalanceAssignView.as_view(),     name="leave-balance-assign"),
     path("master/leave/my-types/",                CreateMyLeaveTypeView.as_view(),      name="leave-my-types"),
+    # Singleton config: no ID in URL, GET + PUT only
+    path("master/reimbursement-config/",         ReimbursementConfigView.as_view(),   name="reimbursement-config"),
 ]

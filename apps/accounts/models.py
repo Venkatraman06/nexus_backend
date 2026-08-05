@@ -1,3 +1,4 @@
+import datetime
 import uuid
 
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
@@ -9,9 +10,14 @@ from apps.common.constants import EmployeeStatus
 from packages.storages.dynamic_storage import DynamicS3Storage
 
 
-class EmployeeManager(BaseUserManager):
+class BaseEmployeeManager(BaseUserManager):
     def get_queryset(self):
         return super().get_queryset().filter(is_deleted=False)
+
+
+class EmployeeManager(BaseEmployeeManager):
+    def get_queryset(self):
+        return super().get_queryset().filter(is_deleted=False, is_system_account=False)
 
     def create_superuser(self, username, email, password=None, **extra):
         emp = self.model(
@@ -19,26 +25,31 @@ class EmployeeManager(BaseUserManager):
             email=email,
             is_staff=True,
             is_superuser=True,
+            is_system_account=True,
             **extra,
         )
         emp.set_password(password)
         emp.save(using=self._db)
         return emp
 
-    def generate_employee_code(self):
-        """Auto-generate next HIT- prefixed code: HIT-001, HIT-002, ..."""
-        codes = (
-            self.model.objects.filter(employee_code__startswith="HIT-")
+    def generate_employee_code(self, prefix="HIT"):
+        """Auto-generate the next sequential employee code, e.g. HIT-007."""
+        import re
+        pattern = re.compile(rf"^{re.escape(prefix)}-(\d+)$")
+        existing = (
+            self.model.base_objects
+            .filter(employee_code__startswith=f"{prefix}-")
             .values_list("employee_code", flat=True)
         )
-        nums = []
-        for code in codes:
-            try:
-                nums.append(int(code[4:]))
-            except (ValueError, IndexError):
-                pass
-        num = max(nums) + 1 if nums else 1
-        return f"HIT-{num:03d}"
+        max_num = 0
+        for code in existing:
+            m = pattern.match(code)
+            if m:
+                num = int(m.group(1))
+                if num > max_num:
+                    max_num = num
+        return f"{prefix}-{str(max_num + 1).zfill(3)}"
+
 
 
 GENDER_CHOICES = [("M", "Male"), ("F", "Female"), ("O", "Other")]
@@ -113,6 +124,7 @@ class Employee(AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(default=True)
     is_deleted = models.BooleanField(default=False)
     is_staff = models.BooleanField(default=False)
+    is_system_account = models.BooleanField(default=False, help_text="System-level admin account (e.g., CEO Admin)")
     is_pmo = models.BooleanField(default=False, help_text="PMO role flag")
     is_manager = models.BooleanField(default=False)
     profile_picture = models.ImageField(
@@ -121,10 +133,13 @@ class Employee(AbstractBaseUser, PermissionsMixin):
         null=True,
         blank=True,
     )
+    totp_secret = models.CharField(max_length=64, blank=True, null=True, help_text="Base32 TOTP secret for Google/Microsoft Authenticator")
+    totp_enabled = models.BooleanField(default=False, help_text="Is 2FA enabled for this employee")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     objects = EmployeeManager()
+    base_objects = BaseEmployeeManager()
 
     USERNAME_FIELD = "username"
     REQUIRED_FIELDS = ["email"]
@@ -133,7 +148,7 @@ class Employee(AbstractBaseUser, PermissionsMixin):
         db_table = "hrms_employee"
         verbose_name = _("employee")
         verbose_name_plural = _("employees")
-        ordering = ["-employee_code"]
+        ordering = ["employee_code"]
 
     def __str__(self):
         return self.full_name or self.username
@@ -141,6 +156,85 @@ class Employee(AbstractBaseUser, PermissionsMixin):
     @property
     def full_name(self):
         return f"{self.first_name} {self.last_name}".strip()
+
+    @staticmethod
+    def get_designation_seniority(emp) -> int:
+        """
+        Lower score = higher designation seniority.
+        Mapping:
+        0: CEO / Founder / Chief Executive
+        1: CTO / Chief Technology Officer
+        2: Co-founder / Co-Founder
+        3: Director / VP / Vice President / C-Level Executives (CFO, COO, CMO, etc.)
+        4: General Manager / Senior Manager / Manager / Head of Department
+        5: Assistant Manager / Team Lead / Architect / Tech Lead / Supervisor
+        6: Senior Executive / Senior Specialist / Senior Employee / Principal
+        7: Executive / Associate / Specialist / Staff
+        8: Junior Associate / Assistant / Trainee / Intern
+        """
+        desig_name = (
+            emp.designation_ref.name
+            if getattr(emp, "designation_ref", None)
+            else (getattr(emp, "designation", "") or "")
+        ).lower().strip()
+
+        if "ceo" in desig_name or "chief executive" in desig_name:
+            return 0
+        if "cto" in desig_name or "chief technology" in desig_name:
+            return 1
+        if "co-founder" in desig_name or "cofounder" in desig_name or "co founder" in desig_name:
+            return 2
+        if "founder" in desig_name or "president" in desig_name:
+            return 0
+        if "director" in desig_name or "vp" in desig_name or "vice president" in desig_name or desig_name.startswith("c") and "official" in desig_name:
+            return 3
+        if "general manager" in desig_name or "senior manager" in desig_name or "manager" in desig_name or "head" in desig_name:
+            return 4
+        if "executive assistant" in desig_name or "ea" in desig_name or "pa" in desig_name:
+            return 5.5
+        if "lead" in desig_name or "architect" in desig_name or "supervisor" in desig_name or "assistant manager" in desig_name:
+            return 5
+        if "senior" in desig_name or "sr" in desig_name or "principal" in desig_name:
+            return 6
+        if "intern" in desig_name or "trainee" in desig_name or "junior" in desig_name or "jr" in desig_name:
+            return 8
+        return 7
+
+    @classmethod
+    def build_hierarchy_ordered_list(cls, queryset):
+        """
+        Builds a hierarchy-aware ordered list of employees based strictly on designation level seniority.
+        CEO (0) -> CTO (1) -> Co-founder (2) -> Director/VP (3) -> Manager (4) -> Lead (5) -> Senior (6) -> Employee (7) -> Intern/Trainee (8)
+        """
+        employees = list(queryset)
+        if not employees:
+            return []
+
+        all_emp_mgrs = dict(
+            cls.objects.filter(is_deleted=False, is_active=True).values_list("id", "manager_id")
+        )
+
+        def get_absolute_level(emp_id):
+            level = 0
+            curr_id = emp_id
+            visited_ancestors = set()
+            while curr_id in all_emp_mgrs and all_emp_mgrs[curr_id] and all_emp_mgrs[curr_id] not in visited_ancestors:
+                visited_ancestors.add(curr_id)
+                curr_id = all_emp_mgrs[curr_id]
+                level += 1
+            return level
+
+        for emp in employees:
+            emp._hierarchy_level = get_absolute_level(emp.id)
+
+        def sort_key(emp):
+            s_score = cls.get_designation_seniority(emp)
+            e_code = emp.employee_code or ""
+            j_date = emp.joining_date if emp.joining_date else datetime.date.max
+            return (s_score, e_code, j_date, emp.first_name, emp.last_name)
+
+        employees.sort(key=sort_key)
+        return employees
 
     def save(self, *args, **kwargs):
         if self.status == EmployeeStatus.ACTIVE:

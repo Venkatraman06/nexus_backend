@@ -152,6 +152,8 @@ class LeaveRequest(BaseModel):
     )
     reviewer_remarks = models.TextField(blank=True, default="")
     is_acknowledged  = models.BooleanField(default=False)
+    medical_certificate = models.FileField(upload_to="leave_proofs/", null=True, blank=True)
+    is_emergency        = models.BooleanField(default=False)
 
     class Meta:
         db_table = "hrms_leave_request"
@@ -402,7 +404,7 @@ class AttendanceMonthlyReport(BaseModel):
 
     class Meta:
         db_table        = "hrms_attendance_monthly_report"
-        unique_together = ("year", "month")
+        unique_together = ("reporting_manager", "year", "month")
         ordering        = ["-year", "-month"]
 
     def __str__(self):
