@@ -34,6 +34,7 @@ class ReferenceType(models.TextChoices):
     TODO = "todo", "To-Do"
     CHAT_MESSAGE = "chat_message", "Chat Message"
     REIMBURSEMENT = "reimbursement", "Reimbursement Claim"
+    CLEARANCE = "clearance", "Clearance"
 
 
 class EventType(models.TextChoices):
@@ -73,6 +74,7 @@ class EventType(models.TextChoices):
     REIMBURSEMENT_REJECTED  = "reimbursement.rejected", "Reimbursement Rejected"
     REIMBURSEMENT_INFO_REQUESTED = "reimbursement.info_requested", "Reimbursement Info Requested"
     REIMBURSEMENT_PAID      = "reimbursement.paid", "Reimbursement Paid"
+    OFFBOARDING_CLEARANCE_ASSIGNED = "offboarding.clearance_assigned", "Offboarding Clearance Assigned"
 
 
 

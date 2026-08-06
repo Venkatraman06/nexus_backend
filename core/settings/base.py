@@ -44,6 +44,7 @@ PROJECT_APPS = [
     "apps.attendance",
     "apps.payroll",
     "apps.compliance",
+    "apps.offboarding",
     "apps.payment",
     "apps.notifications",
     "apps.integrations",
