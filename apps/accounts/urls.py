@@ -4,6 +4,7 @@ from django.urls import path
 from .views import EmployeeViewSet, EmployeeSyncView, EmployeeSimpleDropdownView, EmployeeCertificateViewSet, KeycloakGroupsView, MeView, OrgTreeView, EmployeeSearchView
 from .permission_views import PermissionSyncView, PermissionCreateView
 from .role_views import PermissionCatalogView, RoleListView, RoleDetailView, RolePermissionsUpdateView
+from .login_view import LoginView
 from .auth_views import (
     TokenView, TokenRefreshView, LogoutView, ForgotPasswordView,
     VerifyResetOtpView, ValidateResetTokenView, ResetPasswordView, OnboardSetPasswordView,
@@ -17,6 +18,7 @@ router.register("employee-certificates", EmployeeCertificateViewSet, basename="e
 # generic  employees/<pk>/  pattern does not swallow them first.
 urlpatterns = [
     # ── Authentication (public) ───────────────────────────
+    path("auth/login/",           LoginView.as_view(),         name="auth-login"),
     path("auth/token/",           TokenView.as_view(),         name="auth-token"),
     path("auth/token/refresh/",   TokenRefreshView.as_view(),  name="auth-token-refresh"),
     path("auth/logout/",          LogoutView.as_view(),        name="auth-logout"),

@@ -48,3 +48,19 @@ def broadcast_to_conversation(conversation_id, event_type, message_data) -> None
         )
     except Exception:
         logger.exception("Failed to broadcast %s to conversation %s", event_type, conversation_id)
+
+
+def broadcast_to_user(user_id, event_type, data) -> None:
+    from asgiref.sync import async_to_sync
+    from channels.layers import get_channel_layer
+
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+    try:
+        async_to_sync(channel_layer.group_send)(
+            f"user_{user_id}",
+            {"type": event_type, "message": to_json_safe(data)},
+        )
+    except Exception:
+        logger.exception("Failed to broadcast %s to user %s", event_type, user_id)

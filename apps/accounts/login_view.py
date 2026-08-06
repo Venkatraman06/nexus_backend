@@ -30,6 +30,10 @@ class LoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        token_data = None
+        user_id = None
+        emp = None
+
         try:
             from keycloak import KeycloakOpenID
             kc = KeycloakOpenID(
@@ -41,48 +45,55 @@ class LoginView(APIView):
             token_data = kc.token(username, password)
         except Exception as exc:
             err = str(exc)
-            if "401" in err or "invalid_grant" in err.lower() or "Unauthorized" in err:
+            from apps.accounts.local_auth import authenticate_local_employee, generate_local_jwt
+            local_emp, local_err = authenticate_local_employee(username, password)
+            if local_emp:
+                emp = local_emp
+                token_data = generate_local_jwt(emp)
+            else:
+                if "401" in err or "invalid_grant" in err.lower() or "Unauthorized" in err:
+                    return Response(
+                        {"error": "Invalid username or password"},
+                        status=status.HTTP_401_UNAUTHORIZED,
+                    )
                 return Response(
-                    {"error": "Invalid username or password"},
-                    status=status.HTTP_401_UNAUTHORIZED,
+                    {"error": "Authentication service unavailable"},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
-            return Response(
-                {"error": "Authentication service unavailable"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
 
         access_token = token_data.get("access_token")
-        user_id = None
 
-        try:
-            token_info = kc.introspect(access_token)
-            user_id = token_info.get("sub")
-        except Exception:
-            pass
+        if not emp:
+            try:
+                token_info = kc.introspect(access_token)
+                user_id = token_info.get("sub")
+            except Exception:
+                pass
 
-        user_data = None
-        if user_id:
-            from apps.accounts.models import Employee
-            from django.utils import timezone
+        from apps.accounts.models import Employee
+        from django.utils import timezone
+
+        if user_id and not emp:
             emp = Employee.objects.filter(keycloak_id=user_id).first()
             if emp is None:
-                emp = Employee.objects.filter(username=username).first()
+                emp = Employee.objects.filter(username=username).first() or Employee.objects.filter(email=username).first()
                 if emp and not emp.keycloak_id:
                     emp.keycloak_id = user_id
-            if emp:
-                # Update last login time and keycloak id if needed
-                emp.last_login = timezone.now()
-                emp.save(update_fields=["last_login", "keycloak_id"])
-                
-                user_data = {
-                    "id": str(emp.id),
-                    "username": emp.username,
-                    "full_name": emp.full_name,
-                    "email": emp.email,
-                    "is_pmo": emp.is_pmo,
-                    "is_manager": emp.is_manager,
-                    "is_staff": emp.is_staff,
-                }
+
+        if emp:
+            emp.last_login = timezone.now()
+            emp.save(update_fields=["last_login", "keycloak_id"] if emp.keycloak_id else ["last_login"])
+            user_data = {
+                "id": str(emp.id),
+                "username": emp.username,
+                "full_name": emp.full_name,
+                "email": emp.email,
+                "is_pmo": emp.is_pmo,
+                "is_manager": emp.is_manager,
+                "is_staff": emp.is_staff,
+            }
+        else:
+            user_data = None
 
         return Response({
             "access_token": access_token,

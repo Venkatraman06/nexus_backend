@@ -1,11 +1,12 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from .views import ChatSearchView, ConversationViewSet, MessageViewSet
+from .views import ChatSearchView, ConversationViewSet, MessageViewSet, CallViewSet
 
 router = DefaultRouter()
 router.register("chat/conversations", ConversationViewSet, basename="chat-conversation")
 router.register("chat/messages", MessageViewSet, basename="chat-message")
+router.register("chat/calls", CallViewSet, basename="chat-call")
 
 urlpatterns = [
     path("chat/search/", ChatSearchView.as_view(), name="chat-search"),

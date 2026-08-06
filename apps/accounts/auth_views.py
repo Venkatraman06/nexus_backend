@@ -38,7 +38,7 @@ def _kc_admin():
         realm_name=settings.KEYCLOAK_REALM,
         client_id=settings.KEYCLOAK_CLIENT_ID,
         client_secret_key=settings.KEYCLOAK_CLIENT_SECRET_KEY,
-        verify=True,
+        verify=False,
     )
 
 
@@ -101,24 +101,34 @@ class TokenView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        token_data = None
+        emp = None
+
         try:
             kc = _kc_openid()
             token_data = kc.token(username, password)
         except Exception as exc:
             err = str(exc).lower()
-            if "401" in err or "invalid_grant" in err or "unauthorized" in err:
+            from apps.accounts.local_auth import authenticate_local_employee, generate_local_jwt
+            local_emp, local_err = authenticate_local_employee(username, password)
+            if local_emp:
+                emp = local_emp
+                token_data = generate_local_jwt(emp)
+            else:
+                if "401" in err or "invalid_grant" in err or "unauthorized" in err:
+                    return Response(
+                        {"error": "Invalid username or password"},
+                        status=status.HTTP_401_UNAUTHORIZED,
+                    )
+                logger.error("Keycloak token error: %s", exc)
                 return Response(
-                    {"error": "Invalid username or password"},
-                    status=status.HTTP_401_UNAUTHORIZED,
+                    {"error": "Authentication service unavailable"},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
-            logger.error("Keycloak token error: %s", exc)
-            return Response(
-                {"error": "Authentication service unavailable"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
 
         access_token = token_data.get("access_token")
-        emp, _ = _fetch_employee(kc, access_token)
+        if not emp:
+            emp, _ = _fetch_employee(kc, access_token)
 
         user_data = None
         if emp:

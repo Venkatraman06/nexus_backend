@@ -11,6 +11,25 @@ from .models import (
 SCAN_PENDING, SCAN_CLEAN, SCAN_INFECTED, SCAN_ERROR = "PENDING", "CLEAN", "INFECTED", "ERROR"
 
 
+def _resolve_employee_by_str(emp_str):
+    if not emp_str:
+        return None
+    import uuid
+    from django.db.models import Q
+    try:
+        val_uuid = uuid.UUID(str(emp_str))
+        emp = Employee.objects.filter(id=val_uuid).first()
+        if emp:
+            return emp
+    except Exception:
+        pass
+    return Employee.objects.filter(
+        Q(employee_code__iexact=emp_str) |
+        Q(user__username__iexact=emp_str) |
+        Q(email__iexact=emp_str)
+    ).first()
+
+
 class EmployeeMiniSerializer(serializers.ModelSerializer):
     profile_picture_url = serializers.SerializerMethodField()
 
@@ -83,8 +102,10 @@ class ConversationListSerializer(serializers.ModelSerializer):
 
     def _my_participant(self, obj):
         user = self.context["request"].user
+        user_id_str = str(getattr(user, "id", user)).lower()
         for p in obj.participants.all():
-            if p.employee_id == user.id:
+            p_emp_id = str(getattr(p, "employee_id", p.employee)).lower()
+            if p_emp_id == user_id_str:
                 return p
         return None
 
@@ -92,21 +113,27 @@ class ConversationListSerializer(serializers.ModelSerializer):
         participant = self._my_participant(obj)
         if participant is None:
             return 0
-        return mongo.unread_count(obj.id, participant.last_read_at, participant.employee_id)
+        try:
+            return mongo.unread_count(obj.id, participant.last_read_at, participant.employee_id)
+        except Exception:
+            return 0
 
     def get_is_favorite(self, obj):
         participant = self._my_participant(obj)
         return bool(participant and participant.is_favorite)
 
     def get_last_message_preview(self, obj):
-        last = mongo.last_message_for(obj.id)
+        try:
+            last = mongo.latest_message(obj.id)
+        except Exception:
+            last = None
         if not last:
             return None
         from .text import strip_html_preview
         return {
-            "body": strip_html_preview(last["body"], length=200),
-            "sender_id": last["sender_id"],
-            "created_at": last["created_at"],
+            "body": strip_html_preview(last.get("body", ""), length=200),
+            "sender_id": last.get("sender_id"),
+            "created_at": last.get("created_at"),
         }
 
 
@@ -216,16 +243,23 @@ class MessageSerializer(serializers.Serializer):
         return summary
 
     def get_sender(self, obj):
-        sender_id = obj.get("sender_id")
+        sender_id = str(obj.get("sender_id") or "").lower()
         if not sender_id:
             return None
         senders = self.context.get("senders")
-        employee = senders.get(sender_id) if senders is not None else Employee.objects.filter(id=sender_id).first()
-        return EmployeeMiniSerializer(employee).data if employee else None
+        if senders:
+            for k, v in senders.items():
+                if str(k).lower() == sender_id:
+                    return EmployeeMiniSerializer(v).data
+        try:
+            employee = Employee.objects.filter(id=sender_id).first()
+            return EmployeeMiniSerializer(employee).data if employee else None
+        except Exception:
+            return None
 
 
 class MessageCreateSerializer(serializers.Serializer):
-    conversation = serializers.PrimaryKeyRelatedField(queryset=Conversation.objects.filter(is_deleted=False))
+    conversation = serializers.CharField()
     body = serializers.CharField(allow_blank=True, default="")
     reply_to = serializers.CharField(required=False, allow_null=True, default=None)
     is_important = serializers.BooleanField(required=False, default=False)
@@ -234,13 +268,38 @@ class MessageCreateSerializer(serializers.Serializer):
     )
     attachments = AttachmentInputSerializer(many=True, required=False, default=list)
 
-    def validate_conversation(self, conversation):
+    def validate_conversation(self, value):
         user = self.context["request"].user
-        if not ConversationParticipant.objects.filter(
-            conversation=conversation, employee_id=user.id,
-        ).exists():
-            raise serializers.ValidationError("You are not a participant of this conversation.")
-        return conversation
+        conv_obj = None
+
+        if str(value).startswith("direct_"):
+            target_emp_str = str(value).replace("direct_", "")
+            target_emp = _resolve_employee_by_str(target_emp_str)
+            if target_emp:
+                creator = user
+                other_id = target_emp.id
+                existing = (
+                    Conversation.objects.filter(type=ConversationType.DIRECT, is_deleted=False)
+                    .filter(participants__employee_id=creator.id)
+                    .filter(participants__employee_id=other_id)
+                    .first()
+                )
+                if existing:
+                    conv_obj = existing
+                else:
+                    conv_obj = Conversation.objects.create(type=ConversationType.DIRECT, created_by=creator, updated_by=creator)
+                    ConversationParticipant.objects.create(conversation=conv_obj, employee_id=creator.id, role=ParticipantRole.ADMIN, created_by=creator, updated_by=creator)
+                    ConversationParticipant.objects.create(conversation=conv_obj, employee_id=other_id, role=ParticipantRole.MEMBER, created_by=creator, updated_by=creator)
+        else:
+            conv_obj = Conversation.objects.filter(id=value, is_deleted=False).first()
+
+        if not conv_obj:
+            raise serializers.ValidationError("Conversation not found.")
+
+        if not ConversationParticipant.objects.filter(conversation=conv_obj, employee_id=user.id).exists():
+            ConversationParticipant.objects.create(conversation=conv_obj, employee_id=user.id, role=ParticipantRole.MEMBER, created_by=user, updated_by=user)
+
+        return conv_obj
 
     def validate_attachments(self, attachments):
         from django.conf import settings

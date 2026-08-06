@@ -132,6 +132,9 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
     async def chat_notification_push(self, event):
         await self.send_json({"type": "notification:push", "notification": event["notification"]})
 
+    async def chat_call_update(self, event):
+        await self.send_json({"type": "chat.call.update", "call": event["message"]})
+
     # -- db helpers --
 
     @database_sync_to_async

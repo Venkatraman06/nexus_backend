@@ -122,8 +122,14 @@ class EmployeeViewSet(BaseModelViewSet):
         # Auto-generate employee code
         employee_code = Employee.objects.generate_employee_code()
 
-        # Derive username from employee_code if not provided
-        username = data.get("username") or employee_code.lower()
+        # Derive username from employee_code if not provided and ensure uniqueness
+        base_username = data.get("username") or employee_code.lower()
+        username = base_username
+        suffix = 1
+        while Employee._base_manager.filter(username=username).exists():
+            username = f"{base_username}_{suffix}"
+            suffix += 1
+        data["username"] = username
 
         # Try to create Keycloak user (non-blocking)
         keycloak_id = None

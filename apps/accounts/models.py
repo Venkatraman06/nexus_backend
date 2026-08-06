@@ -26,19 +26,20 @@ class EmployeeManager(BaseUserManager):
         return emp
 
     def generate_employee_code(self):
-        """Auto-generate next HIT- prefixed code: HIT-001, HIT-002, ..."""
-        codes = (
-            self.model.objects.filter(employee_code__startswith="HIT-")
-            .values_list("employee_code", flat=True)
+        """Auto-generate next unique HIT- prefixed code: HIT-001, HIT-002, ..."""
+        existing_codes = set(
+            self.model._base_manager.values_list("employee_code", flat=True)
         )
-        nums = []
-        for code in codes:
-            try:
-                nums.append(int(code[4:]))
-            except (ValueError, IndexError):
-                pass
-        num = max(nums) + 1 if nums else 1
-        return f"HIT-{num:03d}"
+        existing_usernames = set(
+            self.model._base_manager.values_list("username", flat=True)
+        )
+        num = 1
+        while True:
+            code = f"HIT-{num:03d}"
+            uname = code.lower()
+            if code not in existing_codes and uname not in existing_usernames:
+                return code
+            num += 1
 
 
 GENDER_CHOICES = [("M", "Male"), ("F", "Female"), ("O", "Other")]

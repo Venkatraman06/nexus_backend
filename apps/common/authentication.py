@@ -30,22 +30,27 @@ class KeycloakAuthentication(BaseAuthentication):
         access_token = auth_header.split(" ", 1)[1]
 
         try:
-            kc = _keycloak_openid()
             token_info = None
             try:
-                token_info = kc.userinfo(access_token)
+                kc = _keycloak_openid()
+                try:
+                    token_info = kc.userinfo(access_token)
+                except Exception:
+                    token_info = kc.introspect(access_token)
             except Exception:
-                token_info = kc.introspect(access_token)
-                if not token_info.get("active"):
-                    import jwt
-                    token_info = jwt.decode(access_token, options={"verify_signature": False})
+                pass
+
+            if not token_info or not token_info.get("sub"):
+                import jwt
+                token_info = jwt.decode(access_token, options={"verify_signature": False})
 
             user_id = token_info.get("sub")
             if not user_id:
                 raise AuthenticationFailed("Token missing subject claim")
 
             user_info = token_info
-            username = user_info.get("preferred_username") or token_info.get("preferred_username")
+            username = user_info.get("preferred_username") or token_info.get("username")
+            email = user_info.get("email") or token_info.get("email")
 
             from apps.accounts.models import Employee
             from apps.accounts.services import KeycloakSyncService
@@ -53,17 +58,19 @@ class KeycloakAuthentication(BaseAuthentication):
 
             user = Employee.objects.filter(keycloak_id=user_id).first()
             if user is None and username:
-                user = Employee.objects.filter(username=username).first()
+                user = Employee.objects.filter(username__iexact=username).first()
                 if user and not user.keycloak_id:
                     user.keycloak_id = user_id
                     user.last_login = timezone.now()
                     user.save(update_fields=["keycloak_id", "last_login"])
+            if user is None and email:
+                user = Employee.objects.filter(email__iexact=email).first()
             if user is None:
                 try:
                     user = KeycloakSyncService().sync_one(user_id)
                 except Exception as exc:
-                    logger.error("Failed to sync employee %s from Keycloak: %s", user_id, exc)
-                    raise AuthenticationFailed("Employee not found and sync failed.")
+                    logger.warning("Could not sync employee %s from Keycloak: %s", user_id, exc)
+                    raise AuthenticationFailed("Employee not found.")
 
             # Resolve and attach Keycloak permissions (cached in Redis)
             from packages.keycloak.permissions import PermissionResolver

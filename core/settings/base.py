@@ -153,3 +153,5 @@ PROJECT_DUE_EXCLUDED_WORKFLOW_SLUGS = [
     for s in config("PROJECT_DUE_EXCLUDED_WORKFLOW_SLUGS", default="close,cancelled").split(",")
     if s.strip()
 ]
+ 
+WHITENOISE_MANIFEST_STRICT = False 
