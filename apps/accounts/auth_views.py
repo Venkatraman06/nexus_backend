@@ -46,26 +46,25 @@ def _fetch_employee(kc, access_token):
     """Introspect/userinfo token and look up the matching Employee record."""
     from apps.accounts.models import Employee
     try:
+        token_info = None
         try:
             token_info = kc.userinfo(access_token)
         except Exception:
-            token_info = kc.introspect(access_token)
+            try:
+                token_info = kc.introspect(access_token)
+            except Exception:
+                token_info = {}
             if not token_info.get("active"):
                 import jwt
                 token_info = jwt.decode(access_token, options={"verify_signature": False})
-        user_id = token_info.get("sub")
-        if not user_id:
-            try:
-                user_info = kc.userinfo(access_token)
-                user_id = user_info.get("sub")
-            except Exception:
-                pass
+
+        user_id = token_info.get("sub") or token_info.get("user_id")
         if not user_id:
             return None, None
-        emp = Employee.base_objects.filter(keycloak_id=user_id).first()
+        emp = Employee.base_objects.filter(keycloak_id=user_id).first() or Employee.base_objects.filter(id=user_id).first()
         if emp:
             return emp, user_id
-        preferred = token_info.get("preferred_username")
+        preferred = token_info.get("preferred_username") or token_info.get("username")
         emp = Employee.base_objects.filter(username=preferred).first() if preferred else None
         return emp, user_id
     except Exception:
@@ -118,17 +117,29 @@ class TokenView(APIView):
             kc = _kc_openid()
             token_data = kc.token(username, password)
         except Exception as exc:
-            err = str(exc).lower()
-            logger.warning("Keycloak login failed for '%s' (resolved '%s'): %s", username_input, username, exc)
-            if "401" in err or "invalid_grant" in err or "unauthorized" in err:
+            logger.warning("Keycloak login failed for '%s' (resolved '%s'): %s. Trying Django database fallback...", username_input, username, exc)
+            from apps.accounts.models import Employee
+            from django.contrib.auth import authenticate
+
+            emp_fallback = Employee.base_objects.filter(username__iexact=username).first()
+            if not emp_fallback and "@" in username_input:
+                emp_fallback = Employee.base_objects.filter(email__iexact=username_input).first()
+
+            if emp_fallback and (emp_fallback.check_password(password) or authenticate(username=emp_fallback.username, password=password)):
+                from rest_framework_simplejwt.tokens import RefreshToken
+                refresh = RefreshToken.for_user(emp_fallback)
+                access_token = str(refresh.access_token)
+                token_data = {
+                    "access_token": access_token,
+                    "refresh_token": str(refresh),
+                    "token_type": "bearer",
+                    "expires_in": 86400,
+                }
+            else:
                 return Response(
                     {"error": "Invalid username or password"},
                     status=status.HTTP_401_UNAUTHORIZED,
                 )
-            return Response(
-                {"error": "Authentication service unavailable"},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
 
         access_token = token_data.get("access_token")
         emp, _ = _fetch_employee(kc, access_token)

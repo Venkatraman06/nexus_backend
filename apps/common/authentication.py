@@ -35,12 +35,15 @@ class KeycloakAuthentication(BaseAuthentication):
             try:
                 token_info = kc.userinfo(access_token)
             except Exception:
-                token_info = kc.introspect(access_token)
+                try:
+                    token_info = kc.introspect(access_token)
+                except Exception:
+                    token_info = {}
                 if not token_info.get("active"):
                     import jwt
                     token_info = jwt.decode(access_token, options={"verify_signature": False})
 
-            user_id = token_info.get("sub")
+            user_id = token_info.get("sub") or token_info.get("user_id")
             if not user_id:
                 try:
                     user_info = kc.userinfo(access_token)
@@ -52,13 +55,13 @@ class KeycloakAuthentication(BaseAuthentication):
                 raise AuthenticationFailed("Token missing subject claim")
 
             user_info = token_info
-            username = user_info.get("preferred_username") or token_info.get("preferred_username")
+            username = user_info.get("preferred_username") or token_info.get("username")
 
             from apps.accounts.models import Employee
             from apps.accounts.services import KeycloakSyncService
             from django.utils import timezone
 
-            user = Employee.base_objects.filter(keycloak_id=user_id).first()
+            user = Employee.base_objects.filter(keycloak_id=user_id).first() or Employee.base_objects.filter(id=user_id).first()
             if user is None and username:
                 user = Employee.base_objects.filter(username=username).first()
                 if user and not user.keycloak_id:

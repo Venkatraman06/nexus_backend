@@ -82,19 +82,15 @@ class QuotationViewSet(viewsets.ModelViewSet):
             quotation.client.email = recipient_email
             quotation.client.save(update_fields=["email"])
 
-        quotation.status = "SENT"
-        quotation.sent_at = timezone.now()
-        quotation.save(update_fields=["status", "sent_at", "updated_at"])
-
         try:
-            from django.core.mail import send_mail
+            from django.core.mail import send_mail as django_send_mail
             from django.conf import settings
             token = signer.sign(str(quotation.id))
             origins = getattr(settings, 'CORS_ALLOWED_ORIGINS', ['http://localhost:3000'])
             base_url = origins[0] if isinstance(origins, (list, tuple)) and origins else 'http://localhost:3000'
-            view_url = f"{base_url}/api/v1/quotations/{quotation.id}/view/?token={token}"
-            approve_url = f"{base_url}/api/v1/quotations/{quotation.id}/respond/?token={token}&decision=approve"
-            reject_url = f"{base_url}/api/v1/quotations/{quotation.id}/respond/?token={token}&decision=reject"
+            view_url = f"{base_url}/bms/api/v1/quotations/{quotation.id}/view/?token={token}"
+            approve_url = f"{base_url}/bms/api/v1/quotations/{quotation.id}/respond/?token={token}&decision=approve"
+            reject_url = f"{base_url}/bms/api/v1/quotations/{quotation.id}/respond/?token={token}&decision=reject"
             
             client_name = quotation.client.name if quotation.client else "Valued Client"
             body = (
@@ -108,15 +104,22 @@ class QuotationViewSet(viewsets.ModelViewSet):
                 f"Reject Quotation: {reject_url}\n\n"
                 f"Thank you!"
             )
-            send_mail(
+            django_send_mail(
                 subject=f"Price Quotation {quotation.quote_no} - {client_name}",
                 message=body,
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@example.com"),
                 recipient_list=[recipient_email],
-                fail_silently=True,
+                fail_silently=False,
             )
-        except Exception:
-            pass
+            
+            quotation.status = "SENT"
+            quotation.sent_at = timezone.now()
+            quotation.save(update_fields=["status", "sent_at", "updated_at"])
+        except Exception as e:
+            return Response(
+                {"detail": f"Failed to send email via Gmail SMTP: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         serializer = self.get_serializer(quotation)
         return Response(serializer.data, status=status.HTTP_200_OK)
