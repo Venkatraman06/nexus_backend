@@ -47,6 +47,10 @@
   {"name": "pmt.hrms.compliance.create", "description": "Upload HR compliance documents", "category": "HRMS"},
   {"name": "pmt.hrms.compliance.update", "description": "Update HR compliance documents", "category": "HRMS"},
   {"name": "pmt.hrms.compliance.delete", "description": "Delete HR compliance documents", "category": "HRMS"},
+    {"name": "pmt.hrms.offboarding.view", "description": "View employee offboarding records", "category": "HRMS"},
+    {"name": "pmt.hrms.offboarding.create", "description": "Create employee offboarding records", "category": "HRMS"},
+    {"name": "pmt.hrms.offboarding.update", "description": "Update employee offboarding records", "category": "HRMS"},
+    {"name": "pmt.hrms.offboarding.delete", "description": "Delete employee offboarding records", "category": "HRMS"},
 
   {"name": "pmt.chat.view", "description": "Use the team chat module", "category": "Chat"},
 
